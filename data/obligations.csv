@@ -1,0 +1,12 @@
+id,owner_id,owner_type,fee_type,label,status,amount,allocated_total,outstanding_amount,overpaid_amount,waived_amount,locked_by
+1,000331714,citation,citation,citation_fee,closed,4000,4000,0,0,0,
+2,000329181,citation,citation,citation_fee,closed,4000,8000,0,4000,0,
+3,000322452,citation,citation,citation_fee,closed,4000,2000,0,0,2000,
+4,000329019,citation,citation,citation_fee,superseded,4000,0,0,0,0,
+5,000328981,citation,citation,citation_fee,open,4000,0,4000,0,0,
+6,000323211,citation,citation,citation_fee,open,4000,0,4000,0,0,
+7,000330575,citation,citation,citation_fee,closed,4000,4000,0,0,0,
+8,000330362,citation,citation,citation_fee,closed,4000,4000,0,0,0,
+9,1,cart,fee,convenience_fee,closed,400,400,0,0,0,
+10,2,cart,fee,convenience_fee,closed,400,400,0,0,0,
+17,000329019,citation,citation,citation_fee,open,2000,0,2000,0,0,

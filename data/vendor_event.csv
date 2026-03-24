@@ -1,0 +1,10 @@
+id,event_type,cart_id,vendor_name,transaction_id,court_adjustment,allocation_list,metadata,payment_mode,processing_status,is_settled
+1,payment_confirmed,1,stripe,1,,,,online,pending,FALSE
+2,payment_settled,1,stripe,1,,,,online,pending,TRUE
+3,payment_settled,,checkalt,2,,,,check,pending,TRUE
+4,payment_settled,,checkalt,3,,,,check,pending,TRUE
+5,payment_refunded,1,stripe,4,,,,check,pending,TRUE
+6,payment_confirmed,2,stripe,5,,,,online,pending,FALSE
+7,payment_settled,2,stripe,5,,,,online,pending,TRUE
+8,payment_dispute_funds_withdrawn,2,stripe,6,,,,online,pending,TRUE
+9,payment_dispute_funds_returned,2,stripe,7,,,,online,pending,TRUE

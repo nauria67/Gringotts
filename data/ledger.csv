@@ -1,0 +1,11 @@
+id,vendor_name,amount,stage,type,label,cart_id,transaction_id,confirmed_at,settled_at,allocations
+11,checkalt,8000.0,payment_settled,payment,check_payment,3,2,1773729491402,1773729491402,"[{""cart_item_id"": 7, ""obligation_id"": 1, ""amount"": 4000}, {""cart_item_id"": 8, ""obligation_id"": 2, ""amount"": 4000}]"
+12,checkalt,2000.0,payment_settled,payment,check_payment,4,3,1773729712180,1773729712180,"[{""cart_item_id"": 9, ""obligation_id"": 3, ""amount"": 2000}]"
+13,stripe,8400.0,payment_settled,payment,cart_payment,1,1,1773730590501,1773730606286,"[{""cart_item_id"": 1, ""obligation_id"": 9, ""amount"": 400}, {""cart_item_id"": 2, ""obligation_id"": 1, ""amount"": 4000}, {""cart_item_id"": 3, ""obligation_id"": 2, ""amount"": 4000}]"
+14,stripe,-155.0,payment_settled,fee,stripe_fee,1,1,1773730590501,1773730606286,
+15,stripe,8400.0,payment_settled,payment,cart_payment,2,5,1773730590515,1773730606322,"[{""cart_item_id"": 4, ""obligation_id"": 10, ""amount"": 400}, {""cart_item_id"": 5, ""obligation_id"": 7, ""amount"": 4000}, {""cart_item_id"": 6, ""obligation_id"": 8, ""amount"": 4000}]"
+16,stripe,-155.0,payment_settled,fee,stripe_fee,2,5,1773730590515,1773730606322,
+18,stripe,-4000,payment_refunded,payment,refund_payment,1,4,1773730663346,1773730663346,"[{""cart_item_id"": 2, ""obligation_id"": 1, ""amount"": -4000}]"
+19,stripe,-8400,payment_dispute_funds_withdrawn,payment,dispute_payment,2,6,1773731287360,1773731287360,"[{""cart_item_id"": 4, ""obligation_id"": 10, ""amount"": -400}, {""cart_item_id"": 5, ""obligation_id"": 7, ""amount"": -4000}, {""cart_item_id"": 6, ""obligation_id"": 8, ""amount"": -4000}]"
+20,stripe,-1500,payment_dispute_funds_withdrawn,fee,stripe_fee,2,6,1773731287360,1773731287360,
+21,stripe,8400,payment_dispute_funds_returned,payment,dispute_reversal_payment,2,7,1773731287401,1773731287401,"[{""cart_item_id"": 4, ""obligation_id"": 10, ""amount"": 400}, {""cart_item_id"": 5, ""obligation_id"": 7, ""amount"": 4000}, {""cart_item_id"": 6, ""obligation_id"": 8, ""amount"": 4000}]"

@@ -1,0 +1,20 @@
+payment_date,vendor_name,vendor_reference_type,vendor_reference_id,transaction_id,cart_id,payment_mode,type,label,owner_type,owner_id,obligation_id,obligation_label,cart_item_id,amount
+2026-03-17 06:38:11,checkalt,transaction,41/1,2,3,check,payment,check_payment,citation,000331714,1,citation_fee,7,4000
+2026-03-17 06:38:11,checkalt,transaction,41/1,2,3,check,payment,check_payment,citation,000329181,2,citation_fee,8,4000
+2026-03-17 06:41:52,checkalt,transaction,42/1,3,4,check,payment,check_payment,citation,000322452,3,citation_fee,9,2000
+2026-03-17 06:56:46,stripe,stripe_balance_transaction,txn_3RKstt2KVHqqtmaS1G9OXSH1,1,1,online,payment,cart_payment,cart,1,9,convenience_fee,1,400
+2026-03-17 06:56:46,stripe,stripe_balance_transaction,txn_3RKstt2KVHqqtmaS1G9OXSH1,1,1,online,payment,cart_payment,citation,000331714,1,citation_fee,2,4000
+2026-03-17 06:56:46,stripe,stripe_balance_transaction,txn_3RKstt2KVHqqtmaS1G9OXSH1,1,1,online,payment,cart_payment,citation,000329181,2,citation_fee,3,4000
+2026-03-17 06:56:46,stripe,stripe_balance_transaction,txn_3RKstt2KVHqqtmaS1G9OXSH1,1,1,online,fee,stripe_fee,,,,,,-155.0
+2026-03-17 06:56:46,stripe,stripe_balance_transaction,txn_3RKstt2KVHqqtmaS1G9OXSH1,5,2,online,payment,cart_payment,cart,2,10,convenience_fee,4,400
+2026-03-17 06:56:46,stripe,stripe_balance_transaction,txn_3RKstt2KVHqqtmaS1G9OXSH1,5,2,online,payment,cart_payment,citation,000330575,7,citation_fee,5,4000
+2026-03-17 06:56:46,stripe,stripe_balance_transaction,txn_3RKstt2KVHqqtmaS1G9OXSH1,5,2,online,payment,cart_payment,citation,000330362,8,citation_fee,6,4000
+2026-03-17 06:56:46,stripe,stripe_balance_transaction,txn_3RKstt2KVHqqtmaS1G9OXSH1,5,2,online,fee,stripe_fee,,,,,,-155.0
+2026-03-17 06:57:43,stripe,stripe_balance_transaction,txn_3RKstt2KVHqqtmaS138WeBtC,4,1,online,payment,refund_payment,citation,000331714,1,citation_fee,2,-4000
+2026-03-17 07:08:07,stripe,stripe_balance_transaction,txn_1STPXu2KVHqqtmaSJLAyVZ2G,6,2,online,payment,dispute_payment,cart,2,10,convenience_fee,4,-400
+2026-03-17 07:08:07,stripe,stripe_balance_transaction,txn_1STPXu2KVHqqtmaSJLAyVZ2G,6,2,online,payment,dispute_payment,citation,000330575,7,citation_fee,5,-4000
+2026-03-17 07:08:07,stripe,stripe_balance_transaction,txn_1STPXu2KVHqqtmaSJLAyVZ2G,6,2,online,payment,dispute_payment,citation,000330362,8,citation_fee,6,-4000
+2026-03-17 07:08:07,stripe,stripe_balance_transaction,txn_1STPXu2KVHqqtmaSJLAyVZ2G,6,2,online,fee,stripe_fee,,,,,,-1500.0
+2026-03-17 07:08:07,stripe,stripe_balance_transaction,txn_1STPXu2KVHqqtmaSJLAyVZ123,7,2,online,payment,dispute_reversal_payment,cart,2,10,convenience_fee,4,400
+2026-03-17 07:08:07,stripe,stripe_balance_transaction,txn_1STPXu2KVHqqtmaSJLAyVZ123,7,2,online,payment,dispute_reversal_payment,citation,000330575,7,citation_fee,5,4000
+2026-03-17 07:08:07,stripe,stripe_balance_transaction,txn_1STPXu2KVHqqtmaSJLAyVZ123,7,2,online,payment,dispute_reversal_payment,citation,000330362,8,citation_fee,6,4000

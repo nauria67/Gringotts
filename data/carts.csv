@@ -1,0 +1,5 @@
+id,amount,vendor,payment_mode,status
+1,8400,stripe,online,payment_settled
+2,8400,stripe,online,payment_settled
+3,8000,checkalt,check,payment_settled
+4,4000,checkalt,check,payment_settled

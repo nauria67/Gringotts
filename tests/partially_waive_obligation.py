@@ -1,0 +1,5 @@
+from processors.obligation_processor import ObligationProcessor
+
+obligation = ObligationProcessor.get_obligation_by_id(obligation_id=3)
+
+ObligationProcessor.waive_partially_paid_obligation(obligation=obligation)

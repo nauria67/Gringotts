@@ -1,0 +1,5 @@
+id,event_id_ref,customer_id_ref,citation_number_ref,created_at,updated_on,balance_transaction_id,amount,predicted_available_on,amount_available_on,stripe_created_at,currency,reporting_category,source_payment_charge_id,status,type,source_payment_method_id,fee,net,convenience_fee,reconciliation_id_ref,source_transfer_id
+1,2943519,721864d6-a1fb-4338-b355-0c5445a66d40,28963,1746328057679,,txn_3RKstt2KVHqqtmaS1G9OXSH1,8400,1746921600000,,1746328053000,usd,charge,ch_3RKstt2KVHqqtmaS18nMdPxV,pending,charge,pm_1RKsts2KVHqqtmaSsxzJTgrU,155,8245,400,,
+2,,721864d6-a1fb-4338-b355-0c5445a66d40,,,,txn_3RKstt2KVHqqtmaS138WeBtC,-4000,1746921600000,,1746459775000,Usd,refund,ch_3RKstt2KVHqqtmaS18nMdPxV,available,Refund,pm_1RKsts2KVHqqtmaSsxzJTgrU,0,-4000,0,,
+3,,721864d6-a1fb-4338-b355-0c5445a66d40,,,,txn_1STPXu2KVHqqtmaSJLAyVZ2G,-4400,1763136500000,,1763136500,Usd,dispute,ch_3RwMs02KVHqqtmaS0zsM5qwI,available,adjustment,,1500,5800,-400,,
+4,,721864d6-a1fb-4338-b355-0c5445a66d40,,,,txn_1STPXu2KVHqqtmaSJLAyVZ2G,4400,1763136500000,,1763136500,Usd,dispute_reversal,ch_3RwMs02KVHqqtmaS0zsM5qwI,available,adjustment,,0,4400,400,,

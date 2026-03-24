@@ -1,0 +1,20 @@
+vendor_name,vendor_reference_id,vendor_reference_type,transaction_id,cart_id,type,label,owner_type,owner_id,obligation_id,amount
+stripe,txn_3RKstt2KVHqqtmaS1G9OXSH1,stripe_balance_transaction,1,1,payment,convenience_fee,cart,1,9,400
+stripe,txn_3RKstt2KVHqqtmaS1G9OXSH1,stripe_balance_transaction,1,1,payment,citation_fee,citation,000331714,1,4000
+stripe,txn_3RKstt2KVHqqtmaS1G9OXSH1,stripe_balance_transaction,1,1,payment,citation_fee,citation,000329181,2,4000
+stripe,txn_3RKstt2KVHqqtmaS1G9OXSH1,stripe_balance_transaction,1,1,fee,stripe_fee,system,stripe,, -155
+checkalt,41/1,transaction,2,3,payment,citation_fee,citation,000331714,1,4000
+checkalt,41/1,transaction,2,3,payment,citation_fee,citation,000329181,2,4000
+checkalt,42/1,transaction,3,4,payment,citation_fee,citation,000322452,3,2000
+stripe,txn_3RKstt2KVHqqtmaS138WeBtC,stripe_balance_transaction,4,1,payment,refund_payment,citation,000331714,1,-4000
+stripe,txn_3RKstt2KVHqqtmaS1G9OXSH1,stripe_balance_transaction,5,2,payment,convenience_fee,cart,2,10,400
+stripe,txn_3RKstt2KVHqqtmaS1G9OXSH1,stripe_balance_transaction,5,2,payment,citation_fee,citation,000330575,7,4000
+stripe,txn_3RKstt2KVHqqtmaS1G9OXSH1,stripe_balance_transaction,5,2,payment,citation_fee,citation,000330362,8,4000
+stripe,txn_3RKstt2KVHqqtmaS1G9OXSH1,stripe_balance_transaction,5,2,fee,stripe_fee,system,stripe,,-155
+stripe,txn_1STPXu2KVHqqtmaSJLAyVZ2G,stripe_balance_transaction,6,2,payment,dispute_payment,citation,000330575,7,-4000
+stripe,txn_1STPXu2KVHqqtmaSJLAyVZ2G,stripe_balance_transaction,6,2,payment,dispute_payment,citation,000330362,8,-4000
+stripe,txn_1STPXu2KVHqqtmaSJLAyVZ2G,stripe_balance_transaction,6,2,payment,dispute_payment,cart,2,10,-400
+stripe,txn_1STPXu2KVHqqtmaSJLAyVZ2G,stripe_balance_transaction,6,2,fee,stripe_fee,system,stripe,,-1500
+stripe,txn_1STPXu2KVHqqtmaSJLAyVZ123,stripe_balance_transaction,7,2,payment,dispute_reversal_payment,cart,2,10,400
+stripe,txn_1STPXu2KVHqqtmaSJLAyVZ123,stripe_balance_transaction,7,2,payment,dispute_reversal_payment,citation,000330575,7,4000
+stripe,txn_1STPXu2KVHqqtmaSJLAyVZ123,stripe_balance_transaction,7,2,payment,dispute_reversal_payment,citation,000330362,8,4000

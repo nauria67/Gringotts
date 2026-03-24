@@ -1,0 +1,2 @@
+id,vendor_name,cart_id,refund_amount,transaction_id,refund_item_allocations,metadata,processing_status
+1,stripe,1,4000,1,"[{""cart_item_id"": 2, ""amount"": 4000}]","{""charge_id"": ""ch_3T79lk2KVHqqtmaS0rxCH0Rw""}",pending

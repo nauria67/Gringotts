@@ -1,0 +1,10 @@
+"id","stripe_refund_id","object","amount","balance_transaction","charge","created_at","created_at_ts","stripe_created","currency","destination_details","refund_metadata","payment_intent","reason","receipt_number","source_transfer_reversal","status","transfer_reversal","event_id_ref","customer_id_ref","citation_number_ref"
+2,re_3RKstt2KVHqqtmaS1382XP61,refund,4300,txn_3RKstt2KVHqqtmaS138WeBtC,ch_3RKstt2KVHqqtmaS18nMdPxV,1748865133525,2025-06-02 16:52:13.525 +0500,1746459775000,usd,"{
+                ""card"": {
+                    ""reference"": ""24011345126100080231528"",
+                    ""reference_status"": ""available"",
+                    ""reference_type"": ""acquirer_reference_number"",
+                    ""type"": ""refund""
+                },
+                ""type"": ""card""
+            }","{}",pi_3RKstt2KVHqqtmaS1gUQPrFd,,,,succeeded,,2943519,"721864d6-a1fb-4338-b355-0c5445a66d40","000028963"
