@@ -1,8 +1,7 @@
 import copy
 import csv
 import os
-from dataclasses import dataclass
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from core.models.models import (
     CartItem,
@@ -22,6 +21,7 @@ from core.models.models import (
     VendorEvent,
     VendorEventType,
 )
+from processors.log_manager import AuditLogManager
 
 
 class ObligationProcessor:
@@ -31,7 +31,6 @@ class ObligationProcessor:
     )
     _counter_file = "/Users/obvio/Desktop/gringotts/data/obligation_id_counter.txt"
 
-    # Initialize the counter from the file or default to 1
     if os.path.exists(_counter_file):
         with open(_counter_file, "r") as file:
             _id_counter = int(file.read().strip())
@@ -40,14 +39,97 @@ class ObligationProcessor:
 
     @staticmethod
     def _increment_counter():
-        """Increment the counter and save it to the file."""
         ObligationProcessor._id_counter += 1
         with open(ObligationProcessor._counter_file, "w") as file:
             file.write(str(ObligationProcessor._id_counter))
 
     @staticmethod
+    def _get_ctx_value(
+        audit_context: Optional[dict[str, Any]], key: str
+    ) -> Optional[str]:
+        if not audit_context:
+            return None
+        value = audit_context.get(key)
+        return str(value) if value is not None else None
+
+    @staticmethod
+    def _obligation_snapshot(obligation: Obligation) -> dict[str, Any]:
+        return {
+            "id": obligation.id,
+            "owner_id": obligation.owner_id,
+            "owner_type": (
+                str(obligation.owner_type)
+                if obligation.owner_type is not None
+                else None
+            ),
+            "fee_type": (
+                str(obligation.fee_type) if obligation.fee_type is not None else None
+            ),
+            "label": str(obligation.label) if obligation.label is not None else None,
+            "status": str(obligation.status) if obligation.status is not None else None,
+            "amount": obligation.amount,
+            "allocated_total": obligation.allocated_total,
+            "outstanding_amount": obligation.outstanding_amount,
+            "overpaid_amount": obligation.overpaid_amount,
+            "waived_amount": obligation.waived_amount,
+            "locked_by": obligation.locked_by,
+        }
+
+    @staticmethod
+    def _log_obligation_audit(
+        *,
+        action: str,
+        obligation: Obligation,
+        old_status: Optional[str],
+        new_status: Optional[str],
+        amount: Optional[int],
+        before_snapshot: Optional[dict[str, Any]],
+        after_snapshot: Optional[dict[str, Any]],
+        audit_context: Optional[dict[str, Any]] = None,
+        ledger_item_id: Optional[int] = None,
+        vendor_event_id: Optional[int] = None,
+        transaction_id: Optional[int] = None,
+        cart_item_id: Optional[int] = None,
+        metadata: Optional[dict[str, Any]] = None,
+        status: str = "success",
+        reason: Optional[str] = None,
+    ) -> None:
+        AuditLogManager.log_event(
+            domain="obligation",
+            action=action,
+            entity_type="obligation",
+            entity_id=str(obligation.id),
+            actor_type=ObligationProcessor._get_ctx_value(audit_context, "actor_type")
+            or "system",
+            actor_id=ObligationProcessor._get_ctx_value(audit_context, "actor_id"),
+            source=ObligationProcessor._get_ctx_value(audit_context, "source")
+            or "obligation_processor",
+            request_id=ObligationProcessor._get_ctx_value(audit_context, "request_id"),
+            correlation_id=ObligationProcessor._get_ctx_value(
+                audit_context, "correlation_id"
+            ),
+            causation_id=ObligationProcessor._get_ctx_value(
+                audit_context, "causation_id"
+            ),
+            obligation_id=obligation.id,
+            transaction_id=transaction_id,
+            vendor_event_id=vendor_event_id,
+            cart_item_id=cart_item_id,
+            old_status=str(old_status) if old_status is not None else None,
+            new_status=str(new_status) if new_status is not None else None,
+            amount=amount,
+            status=status,
+            reason=reason,
+            before_snapshot=before_snapshot or {},
+            after_snapshot=after_snapshot or {},
+            metadata={
+                "ledger_item_id": ledger_item_id,
+                **(metadata or {}),
+            },
+        )
+
+    @staticmethod
     def read_obligations_from_csv() -> List[Obligation]:
-        """Read obligations from the CSV file."""
         obligations = []
         try:
             with open(ObligationProcessor.obligations_csv_path, mode="r") as file:
@@ -70,12 +152,11 @@ class ObligationProcessor:
                         )
                     )
         except FileNotFoundError:
-            pass  # If the file doesn't exist, return an empty list
+            pass
         return obligations
 
     @staticmethod
-    def get_obligation_by_id(obligation_id: int) -> Obligation:
-        """Get an obligation by its ID."""
+    def get_obligation_by_id(obligation_id: int) -> Optional[Obligation]:
         obligations = ObligationProcessor.read_obligations_from_csv()
         for obligation in obligations:
             if obligation.id == obligation_id:
@@ -84,36 +165,31 @@ class ObligationProcessor:
 
     @staticmethod
     def process(court_adjustment: CourtAdjustment) -> ObligationProcessingResult:
-        """Process a court adjustment and return an obligation processing result."""
-        # Placeholder logic for processing
-        obligation = court_adjustment.raw_allocation.owner_id  # Example
+        obligation = court_adjustment.raw_allocation.owner_id
         return ObligationProcessingResult(
             obligation=obligation,
-            citation=None,  # Replace with actual citation logic
-            obligation_activity_log=None,  # Replace with actual activity log logic
+            citation=None,
+            obligation_activity_log=None,
         )
 
     @staticmethod
     def authorise(
         obligations: List[Obligation], transaction: Transaction
     ) -> List[Obligation]:
-        """Authorise a list of obligations with a transaction."""
         for obligation in obligations:
-            obligation.status = "authorised"  # Replace with actual status enum
+            obligation.status = "authorised"
         return obligations
 
     @staticmethod
     def settle(
         obligations: List[Obligation], transaction: Transaction
     ) -> List[Obligation]:
-        """Settle a list of obligations with a transaction."""
         for obligation in obligations:
-            obligation.status = "settled"  # Replace with actual status enum
+            obligation.status = "settled"
         return obligations
 
     @staticmethod
     def get_from_raw(raw_allocations: List[RawAllocation]) -> List[Obligation]:
-        """Convert raw allocations to obligations."""
         obligations = []
         for raw_allocation in raw_allocations:
             obligations.append(
@@ -121,8 +197,8 @@ class ObligationProcessor:
                     owner_id=raw_allocation.owner_id,
                     owner_type=raw_allocation.owner_type,
                     fee_type=raw_allocation.fee_type,
-                    name="Generated Obligation",  # Replace with actual logic
-                    status="pending",  # Replace with actual status enum
+                    name="Generated Obligation",
+                    status="pending",
                     locked_by=None,
                 )
             )
@@ -130,12 +206,9 @@ class ObligationProcessor:
 
     @staticmethod
     def store_obligations_activity_log(obligation_activity_log: ObligationActivityLog):
-        """Store in csv"""
         file_exists = False
         try:
-            with open(
-                ObligationProcessor.obligation_activity_log_csv_path, mode="r"
-            ) as file:
+            with open(ObligationProcessor.obligation_activity_log_csv_path, mode="r"):
                 file_exists = True
         except FileNotFoundError:
             pass
@@ -147,7 +220,6 @@ class ObligationProcessor:
         ) as file:
             writer = csv.writer(file)
             if not file_exists:
-                # Write header row if the file is new
                 writer.writerow(
                     [
                         "obligation_id",
@@ -190,10 +262,9 @@ class ObligationProcessor:
 
     @staticmethod
     def store_obligation(obligation: Obligation):
-        """Store in CSV, add column names if it's a new file."""
         file_exists = False
         try:
-            with open(ObligationProcessor.obligations_csv_path, mode="r") as file:
+            with open(ObligationProcessor.obligations_csv_path, mode="r"):
                 file_exists = True
         except FileNotFoundError:
             pass
@@ -203,7 +274,6 @@ class ObligationProcessor:
         ) as file:
             writer = csv.writer(file)
             if not file_exists:
-                # Write header row if the file is new
                 writer.writerow(
                     [
                         "id",
@@ -239,13 +309,12 @@ class ObligationProcessor:
 
     @staticmethod
     def update_obligation(updated_obligation: Obligation):
-        """Update an existing obligation in the CSV."""
         obligations = []
         with open(ObligationProcessor.obligations_csv_path, mode="r") as file:
             reader = csv.DictReader(file)
             for row in reader:
                 if int(row["id"]) == updated_obligation.id:
-                    obligations.append(updated_obligation)  # Update the obligation
+                    obligations.append(updated_obligation)
                 else:
                     obligations.append(
                         Obligation(
@@ -303,7 +372,6 @@ class ObligationProcessor:
 
     @staticmethod
     def invalid_obligation_statuses():
-        """Return a set of invalid obligation statuses."""
         return [
             ObligationStatus.SUPERSEDED,
             ObligationStatus.VOIDED,
@@ -311,8 +379,10 @@ class ObligationProcessor:
         ]
 
     @staticmethod
-    def add_payable(request: ObligationCreationRequest) -> Obligation:
-        """Add a payable obligation based on a creation request."""
+    def add_payable(
+        request: ObligationCreationRequest,
+        audit_context: Optional[dict[str, Any]] = None,
+    ) -> Obligation:
         existing_obligation = ObligationProcessor.get_valid_obligation_against_payable(
             owner_id=request.owner_id,
             owner_type=request.owner_type,
@@ -337,6 +407,7 @@ class ObligationProcessor:
             locked_by=None,
         )
         ObligationProcessor.store_obligation(obligation)
+
         obligation_activity_log = ObligationActivityLog(
             old_status=None,
             status_updated=False,
@@ -350,13 +421,26 @@ class ObligationProcessor:
             allocated_delta=0,
         )
         ObligationProcessor.store_obligations_activity_log(obligation_activity_log)
+
+        ObligationProcessor._log_obligation_audit(
+            action="obligation.created",
+            obligation=obligation,
+            old_status=None,
+            new_status=obligation.status,
+            amount=obligation.amount,
+            before_snapshot={},
+            after_snapshot=ObligationProcessor._obligation_snapshot(obligation),
+            audit_context=audit_context,
+            metadata={
+                "event_type": str(ObligationEventType.DEBT_CREATED),
+            },
+        )
         return obligation
 
     @staticmethod
     def filter_obligations(
         obligations: List[Obligation], filter_request: ObligationFilterRequest
     ) -> List[Obligation]:
-
         filtered_obligations = [
             obligation
             for obligation in obligations
@@ -381,10 +465,11 @@ class ObligationProcessor:
 
     @staticmethod
     def lock_obligations(
-        cart_items: List[CartItem], lock_by: int, payment_mode: PaymentMode
+        cart_items: List[CartItem],
+        lock_by: int,
+        payment_mode: PaymentMode,
+        audit_context: Optional[dict[str, Any]] = None,
     ) -> List[Obligation]:
-        """Lock a list of obligations."""
-
         is_locking_allowed = all(
             cart_item.obligation.status == ObligationStatus.OPEN
             for cart_item in cart_items
@@ -392,11 +477,16 @@ class ObligationProcessor:
         if not is_locking_allowed:
             raise ValueError("All obligations must be open to be locked.")
 
+        updated_obligations = []
+
         for cart_item in cart_items:
             obligation = cart_item.obligation
+            before_snapshot = ObligationProcessor._obligation_snapshot(obligation)
             old_status = obligation.status
+
             obligation.status = ObligationStatus.LOCKED
             obligation.locked_by = lock_by
+
             obligation_activity_log = ObligationActivityLog(
                 obligation_id=obligation.id,
                 old_status=old_status,
@@ -415,10 +505,30 @@ class ObligationProcessor:
             ObligationProcessor.store_obligations_activity_log(obligation_activity_log)
             ObligationProcessor.update_obligation(obligation)
 
+            ObligationProcessor._log_obligation_audit(
+                action="obligation.locked",
+                obligation=obligation,
+                old_status=old_status,
+                new_status=obligation.status,
+                amount=obligation.amount,
+                before_snapshot=before_snapshot,
+                after_snapshot=ObligationProcessor._obligation_snapshot(obligation),
+                audit_context=audit_context,
+                cart_item_id=cart_item.id,
+                metadata={
+                    "event_type": str(ObligationEventType.LOCKED),
+                    "payment_mode": str(payment_mode),
+                    "locked_by": lock_by,
+                },
+            )
+            updated_obligations.append(obligation)
+
+        return updated_obligations
+
     @staticmethod
     def get_valid_obligation_against_payable(
         owner_id: str, owner_type: str, label: ObligationLabel
-    ) -> Obligation:
+    ) -> Optional[Obligation]:
         obligations = ObligationProcessor.read_obligations_from_csv()
         for obligation in obligations:
             if (
@@ -433,6 +543,7 @@ class ObligationProcessor:
                 and obligation.label == label
             ):
                 return obligation
+        return None
 
     @staticmethod
     def update_obligation_according_to_ledger(
@@ -440,10 +551,9 @@ class ObligationProcessor:
         cart_item: CartItem,
         vendor_event: VendorEvent,
         ledger_item: LedgerItem,
+        audit_context: Optional[dict[str, Any]] = None,
     ) -> Obligation:
-        """Update the payment details of an obligation."""
         old_obligation = copy.deepcopy(obligation)
-        print("old_obligation:", old_obligation)
         allocated_total, outstanding_amount, overpaid_amount = (
             ObligationProcessor.get_obligation_payment_summary(obligation)
         )
@@ -452,7 +562,6 @@ class ObligationProcessor:
         obligation.outstanding_amount = outstanding_amount
         obligation.overpaid_amount = overpaid_amount
 
-        # Only move to CLOSED if this obligation is still collectible/resolvable
         if (
             obligation.outstanding_amount == 0
             and obligation.status
@@ -480,20 +589,26 @@ class ObligationProcessor:
 
         if vendor_event.event_type == VendorEventType.PAYMENT_CONFIRMED:
             obligation_activity_status = ObligationEventType.PAYMENT_AUTHORISED
+            audit_action = "obligation.payment_confirmed"
         elif vendor_event.event_type == VendorEventType.PAYMENT_SETTLED:
             obligation_activity_status = ObligationEventType.PAYMENT_SETTLED
+            audit_action = "obligation.payment_settled"
         elif vendor_event.event_type == VendorEventType.PAYMENT_REFUNDED:
             obligation_activity_status = ObligationEventType.PAYMENT_REFUNDED
+            audit_action = "obligation.payment_refunded"
         elif vendor_event.event_type == VendorEventType.PAYMENT_DISPUTE_FUNDS_WITHDRAWN:
             obligation_activity_status = (
                 ObligationEventType.PAYMENT_DISPUTE_FUNDS_WITHDRAWN
             )
+            audit_action = "obligation.dispute_funds_withdrawn"
         elif vendor_event.event_type == VendorEventType.PAYMENT_DISPUTE_FUNDS_RETURNED:
             obligation_activity_status = (
                 ObligationEventType.PAYMENT_DISPUTE_FUNDS_RETURN
             )
+            audit_action = "obligation.dispute_funds_returned"
         else:
             obligation_activity_status = ObligationEventType.GENERAL_UPDATE
+            audit_action = "obligation.updated"
 
         obligation_activity_log = ObligationActivityLog(
             obligation_id=obligation.id,
@@ -517,6 +632,32 @@ class ObligationProcessor:
         )
         ObligationProcessor.store_obligations_activity_log(obligation_activity_log)
 
+        ObligationProcessor._log_obligation_audit(
+            action=audit_action,
+            obligation=obligation,
+            old_status=old_obligation.status,
+            new_status=obligation.status,
+            amount=ledger_item.amount,
+            before_snapshot=ObligationProcessor._obligation_snapshot(old_obligation),
+            after_snapshot=ObligationProcessor._obligation_snapshot(obligation),
+            audit_context=audit_context,
+            ledger_item_id=ledger_item.id,
+            vendor_event_id=vendor_event.id,
+            transaction_id=(
+                ledger_item.transaction.id if ledger_item.transaction else None
+            ),
+            cart_item_id=cart_item.id,
+            metadata={
+                "event_type": str(obligation_activity_status),
+                "allocated_delta": allocated_delta,
+                "payment_mode": (
+                    str(vendor_event.payment_mode)
+                    if vendor_event.payment_mode is not None
+                    else None
+                ),
+            },
+        )
+
         return obligation
 
     @staticmethod
@@ -524,7 +665,6 @@ class ObligationProcessor:
         from processors.ledger import Ledger
 
         ledger_allocations = Ledger.read_ledger_allocations()
-
         allocated_total = 0
 
         for allocation in ledger_allocations:
@@ -538,14 +678,8 @@ class ObligationProcessor:
     @staticmethod
     def waive_partially_paid_obligation(
         obligation: Obligation,
+        audit_context: Optional[dict[str, Any]] = None,
     ) -> Obligation:
-        """
-        Waive the remaining outstanding amount on a partially paid obligation.
-
-        Rule:
-        - if obligation already has some allocated amount, final status = CLOSED
-        - if no allocated amount exists, use void_obligation instead
-        """
         if obligation.outstanding_amount <= 0:
             raise ValueError("Outstanding amount must be greater than zero to waive.")
 
@@ -554,6 +688,7 @@ class ObligationProcessor:
                 "waive_partially_paid_obligation can only be used for partially paid obligations."
             )
 
+        before_snapshot = ObligationProcessor._obligation_snapshot(obligation)
         old_status = obligation.status
         waive_amount = obligation.outstanding_amount
 
@@ -586,19 +721,28 @@ class ObligationProcessor:
         )
         ObligationProcessor.store_obligations_activity_log(activity_log)
 
+        ObligationProcessor._log_obligation_audit(
+            action="obligation.partial_waive_applied",
+            obligation=obligation,
+            old_status=old_status,
+            new_status=obligation.status,
+            amount=waive_amount,
+            before_snapshot=before_snapshot,
+            after_snapshot=ObligationProcessor._obligation_snapshot(obligation),
+            audit_context=audit_context,
+            metadata={
+                "event_type": str(ObligationEventType.PARTIAL_WAIVE),
+                "waive_amount": waive_amount,
+            },
+        )
+
         return obligation
 
     @staticmethod
     def waive_obligation(
         obligation: Obligation,
+        audit_context: Optional[dict[str, Any]] = None,
     ) -> Obligation:
-        """
-        waive a completely unpaid obligation.
-
-        Rule:
-        - if obligation is fully unpaid, final status = WAIVED
-        - if obligation has any payment allocated, use waive_partially_paid_obligation instead
-        """
         if obligation.outstanding_amount <= 0:
             raise ValueError("Obligation has no outstanding amount to waive.")
 
@@ -607,6 +751,7 @@ class ObligationProcessor:
                 "void_obligation can only be used for fully unpaid obligations."
             )
 
+        before_snapshot = ObligationProcessor._obligation_snapshot(obligation)
         old_status = obligation.status
         waive_amount = obligation.outstanding_amount
 
@@ -618,6 +763,8 @@ class ObligationProcessor:
         )
         obligation.status = ObligationStatus.WAIVED
         obligation.locked_by = None
+
+        ObligationProcessor.update_obligation(obligation)
 
         activity_log = ObligationActivityLog(
             obligation_id=obligation.id,
@@ -637,28 +784,30 @@ class ObligationProcessor:
             status_updated=(old_status != obligation.status),
         )
         ObligationProcessor.store_obligations_activity_log(activity_log)
-        ObligationProcessor.update_obligation(obligation)
 
-        return obligation, activity_log
+        ObligationProcessor._log_obligation_audit(
+            action="obligation.waived",
+            obligation=obligation,
+            old_status=old_status,
+            new_status=obligation.status,
+            amount=waive_amount,
+            before_snapshot=before_snapshot,
+            after_snapshot=ObligationProcessor._obligation_snapshot(obligation),
+            audit_context=audit_context,
+            metadata={
+                "event_type": str(ObligationEventType.WAIVED),
+                "waive_amount": waive_amount,
+            },
+        )
+
+        return obligation
 
     @staticmethod
     def supersede_obligation(
         obligation: Obligation,
         new_amount: int,
-    ) -> tuple[Obligation, Obligation, list[ObligationActivityLog]]:
-        """
-        Supersede an obligation by marking the old one as SUPERSEDED
-        and creating a replacement obligation.
-
-        Rules:
-        - old obligation becomes non-payable
-        - replacement obligation is created with the new amount
-        - old financial history is preserved
-        - new obligation starts fresh
-
-        Returns:
-            (old_obligation, new_obligation, activity_logs)
-        """
+        audit_context: Optional[dict[str, Any]] = None,
+    ) -> Obligation:
         if new_amount < 0:
             raise ValueError("new_amount cannot be negative.")
 
@@ -670,18 +819,16 @@ class ObligationProcessor:
                 "Only open obligations with no payments allocated can be superseded."
             )
 
-        # Mark old obligation as superseded
-        obligation.locked_by = None
+        before_snapshot = ObligationProcessor._obligation_snapshot(obligation)
+        old_status = obligation.status
 
-        # Usually superseded obligations should not remain collectible.
-        # Keep historical allocated_total / waived_amount / overpaid_amount unchanged,
-        # but zero out current collectable remainder.
+        obligation.locked_by = None
         obligation.outstanding_amount = 0
         obligation.status = ObligationStatus.SUPERSEDED
 
         old_obligation_log = ObligationActivityLog(
             obligation_id=obligation.id,
-            old_status=obligation.status,
+            old_status=old_status,
             new_status=obligation.status,
             event_type=ObligationEventType.SUPERSEDED,
             ledger_item_id=None,
@@ -694,11 +841,27 @@ class ObligationProcessor:
             overpaid_amount=obligation.overpaid_amount,
             waived_amount=obligation.waived_amount,
             allocated_delta=0,
-            status_updated=False,
+            status_updated=(old_status != obligation.status),
         )
 
         ObligationProcessor.update_obligation(obligation)
         ObligationProcessor.store_obligations_activity_log(old_obligation_log)
+
+        ObligationProcessor._log_obligation_audit(
+            action="obligation.superseded",
+            obligation=obligation,
+            old_status=old_status,
+            new_status=obligation.status,
+            amount=obligation.amount,
+            before_snapshot=before_snapshot,
+            after_snapshot=ObligationProcessor._obligation_snapshot(obligation),
+            audit_context=audit_context,
+            metadata={
+                "event_type": str(ObligationEventType.SUPERSEDED),
+                "replacement_amount": new_amount,
+            },
+        )
+
         new_obligation = ObligationProcessor.add_payable(
             ObligationCreationRequest(
                 type=obligation.fee_type,
@@ -707,7 +870,8 @@ class ObligationProcessor:
                 owner_id=obligation.owner_id,
                 status=ObligationStatus.OPEN,
                 label=obligation.label,
-            )
+            ),
+            audit_context=audit_context,
         )
 
         return new_obligation
@@ -736,12 +900,16 @@ class ObligationProcessor:
                 total_overpaid += obligation.overpaid_amount
                 total_waived += obligation.waived_amount
                 obligation_statuses.append(obligation.status)
-        if all(status == ObligationStatus.CLOSED for status in obligation_statuses):
+
+        if obligation_statuses and all(
+            status == ObligationStatus.CLOSED for status in obligation_statuses
+        ):
             summarised_obligation_status = ObligationStatus.CLOSED
         elif ObligationStatus.DISPUTED in obligation_statuses:
             summarised_obligation_status = ObligationStatus.DISPUTED
         elif any(status == ObligationStatus.OPEN for status in obligation_statuses):
             summarised_obligation_status = ObligationStatus.OPEN
+
         return {
             "total_amount": total_amount,
             "total_allocated": total_allocated,

@@ -1,7 +1,7 @@
 import csv
 import json
 import os
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from core.models.models import (
     AddCartItemsRequest,
@@ -14,6 +14,7 @@ from core.models.models import (
     ObligationCreationRequest,
     ObligationOwnerType,
 )
+from processors.log_manager import AuditLogManager
 from processors.obligation_processor import ObligationProcessor
 
 
@@ -28,21 +29,12 @@ class CartProcessor:
         "/Users/obvio/Desktop/gringotts/data/cart_item_id_counter.txt"
     )
 
-    # Initialize the counter from the file or default to 1
     if os.path.exists(_counter_file):
         with open(_counter_file, "r") as file:
             _id_counter = int(file.read().strip())
     else:
         _id_counter = 1
 
-    @staticmethod
-    def _increment_counter():
-        """Increment the counter and save it to the file."""
-        CartProcessor._id_counter += 1
-        with open(CartProcessor._counter_file, "w") as file:
-            file.write(str(CartProcessor._id_counter))
-
-    # Initialize the counter from the file or default to 1
     if os.path.exists(_cart_item_counter_file):
         with open(_cart_item_counter_file, "r") as file:
             _cart_item_id_counter = int(file.read().strip())
@@ -50,18 +42,98 @@ class CartProcessor:
         _cart_item_id_counter = 1
 
     @staticmethod
+    def _increment_counter():
+        CartProcessor._id_counter += 1
+        with open(CartProcessor._counter_file, "w") as file:
+            file.write(str(CartProcessor._id_counter))
+
+    @staticmethod
     def _increment_cart_item_counter():
-        """Increment the counter and save it to the file."""
         CartProcessor._cart_item_id_counter += 1
         with open(CartProcessor._cart_item_counter_file, "w") as file:
             file.write(str(CartProcessor._cart_item_id_counter))
 
     @staticmethod
+    def _get_ctx_value(
+        audit_context: Optional[dict[str, Any]], key: str
+    ) -> Optional[str]:
+        if not audit_context:
+            return None
+        value = audit_context.get(key)
+        return str(value) if value is not None else None
+
+    @staticmethod
+    def _cart_snapshot(cart: Cart) -> dict[str, Any]:
+        return {
+            "id": cart.id,
+            "amount": cart.amount,
+            "vendor": str(cart.vendor) if cart.vendor is not None else None,
+            "payment_mode": (
+                str(cart.payment_mode) if cart.payment_mode is not None else None
+            ),
+            "status": str(cart.status) if cart.status is not None else None,
+            "cart_items": [
+                {
+                    "id": item.id,
+                    "cart_id": item.cart_id,
+                    "amount": item.amount,
+                    "obligation_id": item.obligation.id if item.obligation else None,
+                    "obligation_label": (
+                        str(item.obligation.label) if item.obligation else None
+                    ),
+                }
+                for item in (cart.cart_items or [])
+            ],
+        }
+
+    @staticmethod
+    def _log_cart_audit(
+        *,
+        action: str,
+        cart: Cart,
+        old_status: Optional[str],
+        new_status: Optional[str],
+        amount: Optional[int],
+        before_snapshot: Optional[dict[str, Any]],
+        after_snapshot: Optional[dict[str, Any]],
+        audit_context: Optional[dict[str, Any]] = None,
+        vendor_event_id: Optional[int] = None,
+        metadata: Optional[dict[str, Any]] = None,
+        status: str = "success",
+        reason: Optional[str] = None,
+    ) -> None:
+        AuditLogManager.log_event(
+            domain="cart",
+            action=action,
+            entity_type="cart",
+            entity_id=str(cart.id),
+            actor_type=CartProcessor._get_ctx_value(audit_context, "actor_type")
+            or "system",
+            actor_id=CartProcessor._get_ctx_value(audit_context, "actor_id"),
+            source=CartProcessor._get_ctx_value(audit_context, "source")
+            or "cart_processor",
+            request_id=CartProcessor._get_ctx_value(audit_context, "request_id"),
+            correlation_id=CartProcessor._get_ctx_value(
+                audit_context, "correlation_id"
+            ),
+            causation_id=CartProcessor._get_ctx_value(audit_context, "causation_id"),
+            cart_id=cart.id,
+            vendor_event_id=vendor_event_id,
+            old_status=str(old_status) if old_status is not None else None,
+            new_status=str(new_status) if new_status is not None else None,
+            amount=amount,
+            status=status,
+            reason=reason,
+            before_snapshot=before_snapshot or {},
+            after_snapshot=after_snapshot or {},
+            metadata=metadata or {},
+        )
+
+    @staticmethod
     def store_cart_activity_log(cart_activity_log: CartActivityLog):
-        """Store in csv"""
         file_exists = False
         try:
-            with open(CartProcessor.cart_activity_log_csv_path, mode="r") as file:
+            with open(CartProcessor.cart_activity_log_csv_path, mode="r"):
                 file_exists = True
         except FileNotFoundError:
             pass
@@ -73,7 +145,6 @@ class CartProcessor:
         ) as file:
             writer = csv.writer(file)
             if not file_exists:
-                # Write header row if the file is new
                 writer.writerow(
                     [
                         "cart_id",
@@ -110,10 +181,9 @@ class CartProcessor:
 
     @staticmethod
     def store_cart(cart: Cart):
-        """Store in CSV, add column names if it's a new file."""
         file_exists = False
         try:
-            with open(CartProcessor.cart_csv_path, mode="r") as file:
+            with open(CartProcessor.cart_csv_path, mode="r"):
                 file_exists = True
         except FileNotFoundError:
             pass
@@ -121,7 +191,6 @@ class CartProcessor:
         with open(CartProcessor.cart_csv_path, mode="a", newline="") as file:
             writer = csv.writer(file)
             if not file_exists:
-                # Write header row if the file is new
                 writer.writerow(["id", "amount", "vendor", "payment_mode", "status"])
             writer.writerow(
                 [
@@ -135,10 +204,9 @@ class CartProcessor:
 
     @staticmethod
     def store_cart_item(cart_item: CartItem):
-        """Store in CSV, add column names if it's a new file."""
         file_exists = False
         try:
-            with open(CartProcessor.cart_item_csv_path, mode="r") as file:
+            with open(CartProcessor.cart_item_csv_path, mode="r"):
                 file_exists = True
         except FileNotFoundError:
             pass
@@ -146,7 +214,6 @@ class CartProcessor:
         with open(CartProcessor.cart_item_csv_path, mode="a", newline="") as file:
             writer = csv.writer(file)
             if not file_exists:
-                # Write header row if the file is new
                 writer.writerow(["id", "cart_id", "amount", "obligation_id"])
             writer.writerow(
                 [
@@ -159,13 +226,12 @@ class CartProcessor:
 
     @staticmethod
     def update_cart(updated_cart: Cart):
-        """Update an existing obligation in the CSV."""
         carts = []
         with open(CartProcessor.cart_csv_path, mode="r") as file:
             reader = csv.DictReader(file)
             for row in reader:
                 if int(row["id"]) == updated_cart.id:
-                    carts.append(updated_cart)  # Update the cart
+                    carts.append(updated_cart)
                 else:
                     carts.append(
                         Cart(
@@ -194,7 +260,6 @@ class CartProcessor:
 
     @staticmethod
     def read_carts() -> List[Cart]:
-        """Read all carts from the CSV file."""
         carts = []
         with open(CartProcessor.cart_csv_path, mode="r") as file:
             reader = csv.DictReader(file)
@@ -212,7 +277,6 @@ class CartProcessor:
 
     @staticmethod
     def read_cart_items() -> List[CartItem]:
-        """Read all cart items from the CSV file."""
         cart_items = []
         with open(CartProcessor.cart_item_csv_path, mode="r") as file:
             reader = csv.DictReader(file)
@@ -233,27 +297,24 @@ class CartProcessor:
     def filter_cart_items(
         cart_items: List[CartItem], cart_id: Optional[int]
     ) -> List[CartItem]:
-        """Filter cart items by cart ID."""
         if cart_id is None:
             return cart_items
         return [item for item in cart_items if item.cart_id == cart_id]
 
     @staticmethod
     def get_cart_by_id(cart_id: int) -> Cart:
-        """Get a cart by its ID."""
         carts = CartProcessor.read_carts()
         for cart in carts:
             if cart.id == cart_id:
-                filter_cart_items = CartProcessor.filter_cart_items(
+                filtered_cart_items = CartProcessor.filter_cart_items(
                     CartProcessor.read_cart_items(), cart_id=cart.id
                 )
-                cart.cart_items = filter_cart_items
+                cart.cart_items = filtered_cart_items
                 return cart
         raise ValueError(f"Cart with ID {cart_id} not found.")
 
     @staticmethod
     def get_cart_item_by_id(cart_item_id: int) -> CartItem:
-        """Get a cart item by its ID."""
         cart_items = CartProcessor.read_cart_items()
         for item in cart_items:
             if item.id == cart_item_id:
@@ -264,8 +325,8 @@ class CartProcessor:
     def create_cart(
         cart_creation_request: CartCreationRequest,
         vendor_event_id: Optional[int] = None,
+        audit_context: Optional[dict[str, Any]] = None,
     ) -> Cart:
-        """Create a cart from a cart creation request."""
         cart = Cart(
             id=CartProcessor._id_counter,
             amount=0,
@@ -276,6 +337,7 @@ class CartProcessor:
         )
         CartProcessor.store_cart(cart)
         CartProcessor._increment_counter()
+
         cart_activity_log = CartActivityLog(
             cart_id=cart.id,
             event_type=CartEventType.CREATED,
@@ -286,15 +348,29 @@ class CartProcessor:
             vendor_event_id=vendor_event_id,
         )
         CartProcessor.store_cart_activity_log(cart_activity_log)
+
+        CartProcessor._log_cart_audit(
+            action="cart.created",
+            cart=cart,
+            old_status=None,
+            new_status=cart.status,
+            amount=cart.amount,
+            before_snapshot={},
+            after_snapshot=CartProcessor._cart_snapshot(cart),
+            audit_context=audit_context,
+            vendor_event_id=vendor_event_id,
+            metadata={"event_type": str(CartEventType.CREATED)},
+        )
         return cart
 
     @staticmethod
     def add_items_to_cart(
         add_cart_items_request: AddCartItemsRequest,
         vendor_event_id: Optional[int] = None,
+        audit_context: Optional[dict[str, Any]] = None,
     ) -> Cart:
-
         cart = add_cart_items_request.cart
+        before_snapshot = CartProcessor._cart_snapshot(cart)
         new_cart_items = []
 
         for payable in add_cart_items_request.cart_payables:
@@ -331,9 +407,11 @@ class CartProcessor:
 
         for item in new_cart_items:
             CartProcessor.store_cart_item(item)
+
         cart.cart_items.extend(new_cart_items)
         cart.amount = sum(item.amount for item in cart.cart_items)
         CartProcessor.update_cart(cart)
+
         cart_activity_log = CartActivityLog(
             cart_id=cart.id,
             amount=cart.amount,
@@ -344,14 +422,38 @@ class CartProcessor:
             status_updated=False,
         )
         CartProcessor.store_cart_activity_log(cart_activity_log)
+
+        CartProcessor._log_cart_audit(
+            action="cart.items_added",
+            cart=cart,
+            old_status=cart.status,
+            new_status=cart.status,
+            amount=cart.amount,
+            before_snapshot=before_snapshot,
+            after_snapshot=CartProcessor._cart_snapshot(cart),
+            audit_context=audit_context,
+            vendor_event_id=vendor_event_id,
+            metadata={
+                "event_type": str(CartEventType.ITEMS_MODIFIED),
+                "new_cart_item_ids": [item.id for item in new_cart_items],
+                "new_obligation_ids": [
+                    item.obligation.id for item in new_cart_items if item.obligation
+                ],
+            },
+        )
         return cart
 
     @staticmethod
-    def checkout_cart(cart: Cart) -> Cart:
-        """Checkout the cart."""
+    def checkout_cart(
+        cart: Cart,
+        audit_context: Optional[dict[str, Any]] = None,
+    ) -> Cart:
         old_status = cart.status
+        before_snapshot = CartProcessor._cart_snapshot(cart)
 
         cart.status = CartStatus.CHECKOUT
+        CartProcessor.update_cart(cart)
+
         cart_activity_log = CartActivityLog(
             cart_id=cart.id,
             amount=cart.amount,
@@ -361,20 +463,38 @@ class CartProcessor:
             status_updated=old_status != cart.status,
         )
         CartProcessor.store_cart_activity_log(cart_activity_log)
+
+        CartProcessor._log_cart_audit(
+            action="cart.checked_out",
+            cart=cart,
+            old_status=old_status,
+            new_status=cart.status,
+            amount=cart.amount,
+            before_snapshot=before_snapshot,
+            after_snapshot=CartProcessor._cart_snapshot(cart),
+            audit_context=audit_context,
+            metadata={"event_type": str(CartEventType.CHECKEDOUT)},
+        )
         return cart
 
     @staticmethod
-    def submit_payment(cart: Cart) -> Cart:
-        """Submit the cart for payment processing."""
+    def submit_payment(
+        cart: Cart,
+        audit_context: Optional[dict[str, Any]] = None,
+    ) -> Cart:
         obligations = [item.obligation for item in cart.cart_items if item.obligation]
         print("obligations to lock:", obligations)
+
+        before_snapshot = CartProcessor._cart_snapshot(cart)
+        old_status = cart.status
+
         ObligationProcessor.lock_obligations(
             cart.cart_items, lock_by=cart.id, payment_mode=cart.payment_mode
         )
 
-        old_status = cart.status
-
         cart.status = CartStatus.PAYMENT_SUBMITTED
+        CartProcessor.update_cart(cart)
+
         cart_activity_log = CartActivityLog(
             cart_id=cart.id,
             amount=cart.amount,
@@ -383,16 +503,36 @@ class CartProcessor:
             new_status=cart.status,
             status_updated=old_status != cart.status,
         )
-        CartProcessor.update_cart(cart)
         CartProcessor.store_cart_activity_log(cart_activity_log)
+
+        CartProcessor._log_cart_audit(
+            action="cart.payment_submitted",
+            cart=cart,
+            old_status=old_status,
+            new_status=cart.status,
+            amount=cart.amount,
+            before_snapshot=before_snapshot,
+            after_snapshot=CartProcessor._cart_snapshot(cart),
+            audit_context=audit_context,
+            metadata={
+                "event_type": str(CartEventType.STATUS_TRANSITIONED),
+                "locked_obligation_ids": [o.id for o in obligations],
+            },
+        )
         return cart
 
     @staticmethod
-    def settle_payment(cart: Cart, vendor_event_id: Optional[int] = None) -> Cart:
-        """Settle` the payment for the cart."""
+    def settle_payment(
+        cart: Cart,
+        vendor_event_id: Optional[int] = None,
+        audit_context: Optional[dict[str, Any]] = None,
+    ) -> Cart:
         old_status = cart.status
+        before_snapshot = CartProcessor._cart_snapshot(cart)
 
         cart.status = CartStatus.PAYMENT_SETTLED
+        CartProcessor.update_cart(cart)
+
         cart_activity_log = CartActivityLog(
             cart_id=cart.id,
             amount=cart.amount,
@@ -402,16 +542,34 @@ class CartProcessor:
             vendor_event_id=vendor_event_id,
             status_updated=old_status != cart.status,
         )
-        CartProcessor.update_cart(cart)
         CartProcessor.store_cart_activity_log(cart_activity_log)
+
+        CartProcessor._log_cart_audit(
+            action="cart.payment_settled",
+            cart=cart,
+            old_status=old_status,
+            new_status=cart.status,
+            amount=cart.amount,
+            before_snapshot=before_snapshot,
+            after_snapshot=CartProcessor._cart_snapshot(cart),
+            audit_context=audit_context,
+            vendor_event_id=vendor_event_id,
+            metadata={"event_type": str(CartEventType.CART_SETTLED)},
+        )
         return cart
 
     @staticmethod
-    def confirm_payment(cart: Cart, vendor_event_id: Optional[int] = None) -> Cart:
-        """Confirm the payment for the cart."""
+    def confirm_payment(
+        cart: Cart,
+        vendor_event_id: Optional[int] = None,
+        audit_context: Optional[dict[str, Any]] = None,
+    ) -> Cart:
         old_status = cart.status
+        before_snapshot = CartProcessor._cart_snapshot(cart)
 
         cart.status = CartStatus.PAYMENT_CONFIRMED
+        CartProcessor.update_cart(cart)
+
         cart_activity_log = CartActivityLog(
             cart_id=cart.id,
             amount=cart.amount,
@@ -421,16 +579,33 @@ class CartProcessor:
             vendor_event_id=vendor_event_id,
             status_updated=old_status != cart.status,
         )
-        CartProcessor.update_cart(cart)
         CartProcessor.store_cart_activity_log(cart_activity_log)
+
+        CartProcessor._log_cart_audit(
+            action="cart.payment_confirmed",
+            cart=cart,
+            old_status=old_status,
+            new_status=cart.status,
+            amount=cart.amount,
+            before_snapshot=before_snapshot,
+            after_snapshot=CartProcessor._cart_snapshot(cart),
+            audit_context=audit_context,
+            vendor_event_id=vendor_event_id,
+            metadata={"event_type": str(CartEventType.CART_PAYMENT_CONFIRMED)},
+        )
         return cart
 
+    @staticmethod
     def mark_payment_dispute_funds_withdrawn(
-        cart: Cart, vendor_event_id: Optional[int] = None
+        cart: Cart,
+        vendor_event_id: Optional[int] = None,
+        audit_context: Optional[dict[str, Any]] = None,
     ) -> Cart:
-        """Mark the payment dispute funds as withdrawn for the cart."""
         old_status = cart.status
+        before_snapshot = CartProcessor._cart_snapshot(cart)
+
         cart.status = CartStatus.DISPUTED
+        CartProcessor.update_cart(cart)
 
         cart_activity_log = CartActivityLog(
             cart_id=cart.id,
@@ -441,16 +616,33 @@ class CartProcessor:
             vendor_event_id=vendor_event_id,
             status_updated=old_status != cart.status,
         )
-        CartProcessor.update_cart(cart)
         CartProcessor.store_cart_activity_log(cart_activity_log)
+
+        CartProcessor._log_cart_audit(
+            action="cart.dispute_funds_withdrawn",
+            cart=cart,
+            old_status=old_status,
+            new_status=cart.status,
+            amount=cart.amount,
+            before_snapshot=before_snapshot,
+            after_snapshot=CartProcessor._cart_snapshot(cart),
+            audit_context=audit_context,
+            vendor_event_id=vendor_event_id,
+            metadata={"event_type": str(CartEventType.DISPUTE_FUNDS_WITHDRAWN)},
+        )
         return cart
 
+    @staticmethod
     def mark_payment_dispute_funds_returned(
-        cart: Cart, vendor_event_id: Optional[int] = None
+        cart: Cart,
+        vendor_event_id: Optional[int] = None,
+        audit_context: Optional[dict[str, Any]] = None,
     ) -> Cart:
-        """Mark the payment dispute funds as returned for the cart."""
         old_status = cart.status
+        before_snapshot = CartProcessor._cart_snapshot(cart)
+
         cart.status = CartStatus.PAYMENT_SETTLED
+        CartProcessor.update_cart(cart)
 
         cart_activity_log = CartActivityLog(
             cart_id=cart.id,
@@ -461,12 +653,29 @@ class CartProcessor:
             vendor_event_id=vendor_event_id,
             status_updated=old_status != cart.status,
         )
-        CartProcessor.update_cart(cart)
         CartProcessor.store_cart_activity_log(cart_activity_log)
+
+        CartProcessor._log_cart_audit(
+            action="cart.dispute_funds_returned",
+            cart=cart,
+            old_status=old_status,
+            new_status=cart.status,
+            amount=cart.amount,
+            before_snapshot=before_snapshot,
+            after_snapshot=CartProcessor._cart_snapshot(cart),
+            audit_context=audit_context,
+            vendor_event_id=vendor_event_id,
+            metadata={"event_type": str(CartEventType.DISPUTE_FUNDS_RETURNED)},
+        )
         return cart
 
-    def refund_payment(cart: Cart, vendor_event_id: Optional[int] = None) -> Cart:
-        """Refund the payment for the cart."""
+    @staticmethod
+    def refund_payment(
+        cart: Cart,
+        vendor_event_id: Optional[int] = None,
+        audit_context: Optional[dict[str, Any]] = None,
+    ) -> Cart:
+        before_snapshot = CartProcessor._cart_snapshot(cart)
 
         cart_activity_log = CartActivityLog(
             cart_id=cart.id,
@@ -478,4 +687,17 @@ class CartProcessor:
             status_updated=False,
         )
         CartProcessor.store_cart_activity_log(cart_activity_log)
+
+        CartProcessor._log_cart_audit(
+            action="cart.payment_refunded",
+            cart=cart,
+            old_status=cart.status,
+            new_status=cart.status,
+            amount=cart.amount,
+            before_snapshot=before_snapshot,
+            after_snapshot=CartProcessor._cart_snapshot(cart),
+            audit_context=audit_context,
+            vendor_event_id=vendor_event_id,
+            metadata={"event_type": str(CartEventType.CART_PAYMENT_REFUNDED)},
+        )
         return cart

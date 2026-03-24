@@ -1,7 +1,7 @@
 import csv
 import json
 import os
-from typing import List
+from typing import Any, List, Optional
 
 from core.models.models import (
     Cart,
@@ -15,14 +15,14 @@ from core.models.models import (
     VendorName,
 )
 from processors.cart_processor import CartProcessor
+from processors.log_manager import AuditLogManager
 from processors.transaction_processor import TransactionProcessor
 
 
 class Ledger:
     ledger_csv_path = "/Users/obvio/Desktop/gringotts/data/ledger.csv"
-    _counter_file = "/Users/obvio/Desktop/gringotts/data/obligation_id_counter.txt"
+    _counter_file = "/Users/obvio/Desktop/gringotts/data/ledger_id_counter.txt"
 
-    # Initialize the counter from the file or default to 1
     if os.path.exists(_counter_file):
         with open(_counter_file, "r") as file:
             _id_counter = int(file.read().strip())
@@ -31,17 +31,98 @@ class Ledger:
 
     @staticmethod
     def _increment_counter():
-        """Increment the counter and save it to the file."""
         Ledger._id_counter += 1
         with open(Ledger._counter_file, "w") as file:
             file.write(str(Ledger._id_counter))
 
     @staticmethod
+    def _get_ctx_value(
+        audit_context: Optional[dict[str, Any]], key: str
+    ) -> Optional[str]:
+        if not audit_context:
+            return None
+        value = audit_context.get(key)
+        return str(value) if value is not None else None
+
+    @staticmethod
+    def _ledger_item_snapshot(ledger_item: LedgerItem) -> dict[str, Any]:
+        return {
+            "id": ledger_item.id,
+            "vendor_name": (
+                str(ledger_item.vendor_name)
+                if ledger_item.vendor_name is not None
+                else None
+            ),
+            "amount": ledger_item.amount,
+            "stage": str(ledger_item.stage) if ledger_item.stage is not None else None,
+            "type": str(ledger_item.type) if ledger_item.type is not None else None,
+            "label": ledger_item.label,
+            "cart_id": ledger_item.cart.id if ledger_item.cart else None,
+            "transaction_id": (
+                ledger_item.transaction.id if ledger_item.transaction else None
+            ),
+            "confirmed_at": ledger_item.confirmed_at,
+            "settled_at": ledger_item.settled_at,
+            "allocations": [
+                {
+                    "cart_item_id": allocation.cart_item.id,
+                    "obligation_id": (
+                        allocation.cart_item.obligation.id
+                        if allocation.cart_item and allocation.cart_item.obligation
+                        else None
+                    ),
+                    "amount": allocation.amount,
+                }
+                for allocation in (ledger_item.allocations or [])
+            ],
+        }
+
+    @staticmethod
+    def _log_ledger_audit(
+        *,
+        action: str,
+        ledger_item: LedgerItem,
+        old_stage: Optional[str],
+        new_stage: Optional[str],
+        before_snapshot: Optional[dict[str, Any]],
+        after_snapshot: Optional[dict[str, Any]],
+        audit_context: Optional[dict[str, Any]] = None,
+        vendor_event: Optional[VendorEvent] = None,
+        status: str = "success",
+        reason: Optional[str] = None,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> None:
+        AuditLogManager.log_event(
+            domain="ledger",
+            action=action,
+            entity_type="ledger_item",
+            entity_id=str(ledger_item.id),
+            actor_type=Ledger._get_ctx_value(audit_context, "actor_type") or "system",
+            actor_id=Ledger._get_ctx_value(audit_context, "actor_id"),
+            source=Ledger._get_ctx_value(audit_context, "source") or "ledger_manager",
+            request_id=Ledger._get_ctx_value(audit_context, "request_id"),
+            correlation_id=Ledger._get_ctx_value(audit_context, "correlation_id"),
+            causation_id=Ledger._get_ctx_value(audit_context, "causation_id"),
+            cart_id=ledger_item.cart.id if ledger_item.cart else None,
+            transaction_id=(
+                ledger_item.transaction.id if ledger_item.transaction else None
+            ),
+            vendor_event_id=vendor_event.id if vendor_event else None,
+            old_status=str(old_stage) if old_stage is not None else None,
+            new_status=str(new_stage) if new_stage is not None else None,
+            amount=int(ledger_item.amount) if ledger_item.amount is not None else None,
+            status=status,
+            reason=reason,
+            before_snapshot=before_snapshot or {},
+            after_snapshot=after_snapshot or {},
+            metadata=metadata or {},
+        )
+
+    @staticmethod
     def store_ledger_item(ledger_item: LedgerItem):
-        """Store in CSV, add column names if it's a new file."""
         file_exists = False
         try:
-            with open(Ledger.ledger_csv_path, mode="r") as file:
+            with open(Ledger.ledger_csv_path, mode="r"):
                 file_exists = True
         except FileNotFoundError:
             pass
@@ -49,7 +130,6 @@ class Ledger:
         with open(Ledger.ledger_csv_path, mode="a", newline="") as file:
             writer = csv.writer(file)
             if not file_exists:
-                # Write header row if the file is new
                 writer.writerow(
                     [
                         "id",
@@ -96,13 +176,11 @@ class Ledger:
 
     @staticmethod
     def update_ledger_item(updated_ledger_item: LedgerItem):
-        print("Updating ledger item:", updated_ledger_item)
-        """Update an existing ledger item in the CSV."""
         ledger_items = Ledger.read_ledger_from_csv()
         for i in range(len(ledger_items)):
             item = ledger_items[i]
             if item.id == updated_ledger_item.id:
-                ledger_items[i] = updated_ledger_item  # Update the ledger item
+                ledger_items[i] = updated_ledger_item
                 break
 
         with open(Ledger.ledger_csv_path, mode="w", newline="") as file:
@@ -154,13 +232,11 @@ class Ledger:
 
     @staticmethod
     def read_ledger_from_csv() -> List[LedgerItem]:
-        """Read ledger items from the CSV file."""
         ledger_items = []
         try:
             with open(Ledger.ledger_csv_path, mode="r") as file:
                 reader = csv.DictReader(file)
                 for row in reader:
-
                     allocations = None
                     allocations_data = (
                         json.loads(row["allocations"]) if row["allocations"] else None
@@ -203,12 +279,11 @@ class Ledger:
                         )
                     )
         except FileNotFoundError:
-            pass  # If the file doesn't exist, return an empty list
+            pass
         return ledger_items
 
     @staticmethod
     def read_ledger_allocations() -> List[LedgerAllocation]:
-        """Read ledger allocations from the CSV file."""
         ledger_allocations = []
         try:
             with open(Ledger.ledger_csv_path, mode="r") as file:
@@ -230,7 +305,7 @@ class Ledger:
                                 )
                             )
         except FileNotFoundError:
-            pass  # If the file doesn't exist, return an empty list
+            pass
         return ledger_allocations
 
     @staticmethod
@@ -252,17 +327,17 @@ class Ledger:
         item_allocations: List[LedgerAllocationItemInput],
         cart: Cart,
         record_time: int,
+        audit_context: Optional[dict[str, Any]] = None,
     ) -> List[LedgerItem]:
-
         transaction = vendor_event.transaction
         assert (
             transaction is not None
         ), "Transaction must be present in the vendor event in ledger recording"
 
         transaction_breakdown = transaction.payment_breakdown
-        ledger_itens_list = []
-        for breakdown_item in transaction_breakdown:
+        ledger_items_list = []
 
+        for breakdown_item in transaction_breakdown:
             existing_ledger_item = (
                 Ledger.identify_existing_ledger_record_for_payment_confirmation(
                     vendor_name=vendor_event.vendor_name,
@@ -272,11 +347,12 @@ class Ledger:
                     cart_id=cart.id,
                 )
             )
+
             if (
                 existing_ledger_item
                 and existing_ledger_item.stage == LedgerStage.PAYMENT_SETTLED
             ):
-                ledger_itens_list.append(existing_ledger_item)
+                ledger_items_list.append(existing_ledger_item)
                 continue
 
             if (
@@ -284,10 +360,30 @@ class Ledger:
                 and existing_ledger_item.stage == LedgerStage.PAYMENT_CONFIRMED
                 and vendor_event.event_type == VendorEventType.PAYMENT_SETTLED
             ):
+                before_snapshot = Ledger._ledger_item_snapshot(existing_ledger_item)
+                old_stage = existing_ledger_item.stage
+
                 existing_ledger_item.stage = LedgerStage.PAYMENT_SETTLED
                 existing_ledger_item.settled_at = record_time
                 Ledger.update_ledger_item(existing_ledger_item)
-                ledger_itens_list.append(existing_ledger_item)
+
+                Ledger._log_ledger_audit(
+                    action="ledger.item_settled",
+                    ledger_item=existing_ledger_item,
+                    old_stage=old_stage,
+                    new_stage=existing_ledger_item.stage,
+                    before_snapshot=before_snapshot,
+                    after_snapshot=Ledger._ledger_item_snapshot(existing_ledger_item),
+                    audit_context=audit_context,
+                    vendor_event=vendor_event,
+                    metadata={
+                        "breakdown_label": breakdown_item.label,
+                        "breakdown_type": str(breakdown_item.type),
+                        "vendor_event_type": str(vendor_event.event_type),
+                    },
+                )
+
+                ledger_items_list.append(existing_ledger_item)
                 continue
 
             ledger_event_type = Ledger.get_corresponding_ledger_stage(
@@ -295,13 +391,12 @@ class Ledger:
             )
 
             allocations = None
-
             ledger_item = LedgerItem(
                 id=Ledger._id_counter,
                 cart=cart,
                 vendor_name=vendor_event.vendor_name,
                 amount=breakdown_item.amount,
-                stage=Ledger.get_corresponding_ledger_stage(vendor_event.event_type),
+                stage=ledger_event_type,
                 type=breakdown_item.type,
                 label=breakdown_item.label,
                 transaction=transaction,
@@ -313,6 +408,7 @@ class Ledger:
                 ),
                 settled_at=(record_time if vendor_event.is_settled else None),
             )
+
             if breakdown_item.type == TransactionBreakdownType.PAYMENT:
                 allocations = [
                     LedgerAllocation(
@@ -322,12 +418,31 @@ class Ledger:
                     )
                     for allocation in item_allocations
                 ]
+
             ledger_item.allocations = allocations
             Ledger._increment_counter()
             Ledger.store_ledger_item(ledger_item)
 
-            ledger_itens_list.append(ledger_item)
-        return ledger_itens_list
+            Ledger._log_ledger_audit(
+                action="ledger.item_created",
+                ledger_item=ledger_item,
+                old_stage=None,
+                new_stage=ledger_item.stage,
+                before_snapshot={},
+                after_snapshot=Ledger._ledger_item_snapshot(ledger_item),
+                audit_context=audit_context,
+                vendor_event=vendor_event,
+                metadata={
+                    "breakdown_label": breakdown_item.label,
+                    "breakdown_type": str(breakdown_item.type),
+                    "vendor_event_type": str(vendor_event.event_type),
+                    "allocation_count": len(allocations or []),
+                },
+            )
+
+            ledger_items_list.append(ledger_item)
+
+        return ledger_items_list
 
     @staticmethod
     def identify_existing_ledger_record_for_payment_confirmation(
@@ -336,7 +451,7 @@ class Ledger:
         type: TransactionBreakdownType,
         label: str,
         cart_id: int,
-    ) -> LedgerItem:
+    ) -> Optional[LedgerItem]:
         ledger_items = Ledger.read_ledger_from_csv()
         for item in ledger_items:
             if (
@@ -350,3 +465,4 @@ class Ledger:
             ):
                 print("Found existing ledger item for payment confirmation:", item)
                 return item
+        return None

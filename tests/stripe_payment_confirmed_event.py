@@ -1,14 +1,9 @@
 from core.models.models import VendorEventProcessingStatus, VendorEventType, VendorName
-from processors.payment_orchestrator import PaymentOrchestrator
-from processors.transaction_processor import TransactionProcessor
-from processors.vendor_event_store import VendorEventStore
+from processors.vendor_event_worker import VendorEventWorker
 
-vendor_events = VendorEventStore.filter_vendor_events(
+VendorEventWorker.process_pending_vendor_events(
     event_type=VendorEventType.PAYMENT_CONFIRMED,
     processing_status=VendorEventProcessingStatus.PENDING,
     vendor_name=VendorName.STRIPE,
+    worker_name="vendor_event_consumer",
 )
-
-for event in vendor_events:
-    print("event", event)
-    PaymentOrchestrator.process_payment_event(event)

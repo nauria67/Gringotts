@@ -1,5 +1,6 @@
-## se;ect 2 payment pending citations from citations csv. Identify obligations against those citations
 import csv
+import time
+from typing import List
 
 from core.models.models import (
     AddCartItemsRequest,
@@ -7,7 +8,6 @@ from core.models.models import (
     CartPayable,
     CartStatus,
     Citation,
-    Obligation,
     ObligationFilterRequest,
     ObligationLabel,
     ObligationStatus,
@@ -15,12 +15,10 @@ from core.models.models import (
     VendorName,
 )
 from processors.cart_processor import CartProcessor
+from processors.log_manager import AccessLogManager, AuditLogManager
 from processors.obligation_processor import ObligationProcessor
 
-# Initialize the processor
 
-
-# Read citations from data/citations.csv
 def fetch_data():
     citations = []
     with open("/Users/obvio/Desktop/gringotts/data/citations.csv", "r") as file:
@@ -39,112 +37,327 @@ def fetch_data():
                     source=row["payment_source"],
                 )
             )
-    # Filter for payment pending citations
+
     payment_pending_citations = [
         c
         for c in citations
         if c.citation_stage == "payment" and c.citation_status == "pending"
     ]
-    # find obligations from the obligations csv for the payment pending citations
-    obligations = []
-    obligations = ObligationProcessor.read_obligations_from_csv()
 
+    obligations = ObligationProcessor.read_obligations_from_csv()
     return payment_pending_citations, obligations
 
 
-def pay_online(citation_numbers):
+def _now_ms() -> int:
+    return int(time.time() * 1000)
 
-    citations, obligations = fetch_data()
-    citations = [c for c in citations if c.citation_number in citation_numbers]
-    obligation_processor = ObligationProcessor()
 
-    filtered_obligations = []
-    for citation in citations:
-        filtered_obligations_temp = obligation_processor.filter_obligations(
-            obligations,
-            ObligationFilterRequest(
-                owner_type="citation",
-                owner_id=citations.citation_number,
-                status=ObligationStatus.OPEN,
-            ),
-        )
-        filtered_obligations.extend(filtered_obligations_temp)
+def _build_checkout_request_id(citation_numbers: List[str]) -> str:
+    return f"req_checkout_{'-'.join(citation_numbers)}_{_now_ms()}"
 
-    cart_processor = CartProcessor()
-    cart = cart_processor.create_cart(
-        CartCreationRequest(
-            status=CartStatus.DRAFT,
-            vendor=VendorName.STRIPE,
-            payment_mode=PaymentMode.ONLINE,
-        )
-    )
-    cart = cart_processor.add_items_to_cart(
-        AddCartItemsRequest(
-            cart=cart,
-            obligations=filtered_obligations,
-            cart_payables=[
-                CartPayable(
-                    type="fee",
-                    amount=400,
+
+def _build_submit_request_id(cart_id: int) -> str:
+    return f"req_submit_{cart_id}_{_now_ms()}"
+
+
+def _build_correlation_id_for_cart(cart_id: int) -> str:
+    return f"cart_payment:{cart_id}"
+
+
+def _build_audit_context(
+    *,
+    actor_type: str,
+    actor_id: str,
+    source: str,
+    request_id: str,
+    correlation_id: str,
+    causation_id: str,
+) -> dict:
+    return {
+        "actor_type": actor_type,
+        "actor_id": actor_id,
+        "source": source,
+        "request_id": request_id,
+        "correlation_id": correlation_id,
+        "causation_id": causation_id,
+    }
+
+
+def pay_online(citation_numbers: List[str]):
+    # -----------------------------
+    # First API call: checkout cart
+    # -----------------------------
+    checkout_request_id = _build_checkout_request_id(citation_numbers)
+    checkout_start = time.time()
+
+    try:
+        all_citations, obligations = fetch_data()
+        citations = [c for c in all_citations if c.citation_number in citation_numbers]
+
+        obligation_processor = ObligationProcessor()
+        filtered_obligations = []
+
+        for citation in citations:
+            filtered_obligations_temp = obligation_processor.filter_obligations(
+                obligations,
+                ObligationFilterRequest(
+                    owner_type="citation",
+                    owner_id=citation.citation_number,
                     status=ObligationStatus.OPEN,
-                    label=ObligationLabel.CONVENIENCE_FEE,
-                )
-            ],
-        ),
-    )
-    cart_processor.checkout_cart(cart)
+                ),
+            )
+            filtered_obligations.extend(filtered_obligations_temp)
 
-    cart_processor.submit_payment(cart)
-
-
-def pay_online(citation_numbers):
-
-    ## first api call to checkout cart
-
-    all_citations, obligations = fetch_data()
-    citations = [c for c in all_citations if c.citation_number in citation_numbers]
-
-    obligation_processor = ObligationProcessor()
-
-    filtered_obligations = []
-    for citation in citations:
-        filtered_obligations_temp = obligation_processor.filter_obligations(
-            obligations,
-            ObligationFilterRequest(
-                owner_type="citation",
-                owner_id=citation.citation_number,
-                status=ObligationStatus.OPEN,
+        cart = CartProcessor.create_cart(
+            CartCreationRequest(
+                status=CartStatus.DRAFT,
+                vendor=VendorName.STRIPE,
+                payment_mode=PaymentMode.ONLINE,
             ),
+            audit_context={
+                "actor_type": "user",
+                "actor_id": "demo_user",
+                "source": "online_payment_api",
+                "request_id": checkout_request_id,
+                "correlation_id": None,
+                "causation_id": f"http_request:{checkout_request_id}",
+            },
         )
-        filtered_obligations.extend(filtered_obligations_temp)
 
-    cart_processor = CartProcessor()
-    cart = cart_processor.create_cart(
-        CartCreationRequest(
-            status=CartStatus.DRAFT,
-            vendor=VendorName.STRIPE,
-            payment_mode=PaymentMode.ONLINE,
+        correlation_id = _build_correlation_id_for_cart(cart.id)
+
+        checkout_audit_context = _build_audit_context(
+            actor_type="user",
+            actor_id="demo_user",
+            source="online_payment_api",
+            request_id=checkout_request_id,
+            correlation_id=correlation_id,
+            causation_id=f"http_request:{checkout_request_id}",
         )
-    )
-    cart = cart_processor.add_items_to_cart(
-        AddCartItemsRequest(
-            cart=cart,
-            obligations=filtered_obligations,
-            cart_payables=[
-                CartPayable(
-                    type="fee",
-                    amount=400,
-                    status=ObligationStatus.OPEN,
-                    label=ObligationLabel.CONVENIENCE_FEE,
-                )
-            ],
-        ),
-    )
-    cart_processor.checkout_cart(cart)
 
-    ## second api call to submit payment for the checked out cart
+        AuditLogManager.log_event(
+            domain="payment",
+            action="online_payment.requested",
+            entity_type="cart",
+            entity_id=str(cart.id),
+            actor_type="user",
+            actor_id="demo_user",
+            source="online_payment_api",
+            request_id=checkout_request_id,
+            correlation_id=correlation_id,
+            causation_id=f"http_request:{checkout_request_id}",
+            cart_id=cart.id,
+            amount=int(sum(c.amount_due for c in citations) + 400),
+            status="success",
+            before_snapshot={},
+            after_snapshot={
+                "cart_id": cart.id,
+                "citation_numbers": [c.citation_number for c in citations],
+                "payment_mode": str(PaymentMode.ONLINE),
+                "vendor": str(VendorName.STRIPE),
+                "status": str(cart.status),
+            },
+            metadata={"step": "checkout_started"},
+        )
 
-    cart_processor.submit_payment(cart)
+        cart = CartProcessor.add_items_to_cart(
+            AddCartItemsRequest(
+                cart=cart,
+                obligations=filtered_obligations,
+                cart_payables=[
+                    CartPayable(
+                        type="fee",
+                        amount=400,
+                        status=ObligationStatus.OPEN,
+                        label=ObligationLabel.CONVENIENCE_FEE,
+                    )
+                ],
+            ),
+            audit_context=checkout_audit_context,
+        )
+
+        cart = CartProcessor.checkout_cart(
+            cart,
+            audit_context=checkout_audit_context,
+        )
+
+        checkout_duration_ms = int((time.time() - checkout_start) * 1000)
+        AccessLogManager.log_request(
+            channel="api",
+            request_id=checkout_request_id,
+            correlation_id=correlation_id,
+            actor_type="user",
+            actor_id="demo_user",
+            source="online_payment_api",
+            method="POST",
+            path_or_operation="/payments/checkout",
+            target_type="cart",
+            target_id=str(cart.id),
+            response_status_code=201,
+            status="success",
+            duration_ms=checkout_duration_ms,
+            metadata={
+                "citation_numbers": citation_numbers,
+                "citation_count": len(citations),
+                "obligation_ids": [str(o.id) for o in filtered_obligations],
+                "cart_id": str(cart.id),
+            },
+        )
+
+    except Exception as exc:
+        checkout_duration_ms = int((time.time() - checkout_start) * 1000)
+
+        AccessLogManager.log_request(
+            channel="api",
+            request_id=checkout_request_id,
+            correlation_id=None,
+            actor_type="user",
+            actor_id="demo_user",
+            source="online_payment_api",
+            method="POST",
+            path_or_operation="/payments/checkout",
+            target_type="cart",
+            response_status_code=500,
+            status="failure",
+            duration_ms=checkout_duration_ms,
+            error_code="CHECKOUT_FAILED",
+            error_message=str(exc),
+            metadata={"citation_numbers": citation_numbers},
+        )
+
+        AuditLogManager.log_event(
+            domain="payment",
+            action="online_payment.requested",
+            entity_type="payment_flow",
+            entity_id=f"checkout_request:{checkout_request_id}",
+            actor_type="user",
+            actor_id="demo_user",
+            source="online_payment_api",
+            request_id=checkout_request_id,
+            correlation_id=None,
+            causation_id=f"http_request:{checkout_request_id}",
+            status="failure",
+            reason=str(exc),
+            before_snapshot={},
+            after_snapshot={},
+            metadata={"step": "checkout_failed", "citation_numbers": citation_numbers},
+        )
+        raise
+
+    # ------------------------------------------
+    # Second API call: submit payment on the cart
+    # ------------------------------------------
+    submit_request_id = _build_submit_request_id(cart.id)
+    submit_start = time.time()
+
+    try:
+        submit_audit_context = _build_audit_context(
+            actor_type="user",
+            actor_id="demo_user",
+            source="online_payment_api",
+            request_id=submit_request_id,
+            correlation_id=correlation_id,
+            causation_id=f"http_request:{submit_request_id}",
+        )
+
+        AuditLogManager.log_event(
+            domain="payment",
+            action="online_payment.submitted",
+            entity_type="cart",
+            entity_id=str(cart.id),
+            actor_type="user",
+            actor_id="demo_user",
+            source="online_payment_api",
+            request_id=submit_request_id,
+            correlation_id=correlation_id,
+            causation_id=f"http_request:{submit_request_id}",
+            cart_id=cart.id,
+            amount=cart.amount,
+            status="success",
+            before_snapshot={
+                "cart_id": cart.id,
+                "status": str(cart.status),
+                "amount": cart.amount,
+            },
+            after_snapshot={
+                "cart_id": cart.id,
+                "status": str(cart.status),
+                "amount": cart.amount,
+            },
+            metadata={"step": "submit_started"},
+        )
+
+        cart = CartProcessor.submit_payment(
+            cart,
+            audit_context=submit_audit_context,
+        )
+
+        submit_duration_ms = int((time.time() - submit_start) * 1000)
+        AccessLogManager.log_request(
+            channel="api",
+            request_id=submit_request_id,
+            correlation_id=correlation_id,
+            actor_type="user",
+            actor_id="demo_user",
+            source="online_payment_api",
+            method="POST",
+            path_or_operation="/payments/submit",
+            target_type="cart",
+            target_id=str(cart.id),
+            response_status_code=202,
+            status="success",
+            duration_ms=submit_duration_ms,
+            metadata={
+                "citation_numbers": citation_numbers,
+                "cart_id": str(cart.id),
+            },
+        )
+
+    except Exception as exc:
+        submit_duration_ms = int((time.time() - submit_start) * 1000)
+
+        AccessLogManager.log_request(
+            channel="api",
+            request_id=submit_request_id,
+            correlation_id=correlation_id,
+            actor_type="user",
+            actor_id="demo_user",
+            source="online_payment_api",
+            method="POST",
+            path_or_operation="/payments/submit",
+            target_type="cart",
+            target_id=str(cart.id),
+            response_status_code=500,
+            status="failure",
+            duration_ms=submit_duration_ms,
+            error_code="SUBMIT_PAYMENT_FAILED",
+            error_message=str(exc),
+            metadata={
+                "citation_numbers": citation_numbers,
+                "cart_id": str(cart.id),
+            },
+        )
+
+        AuditLogManager.log_event(
+            domain="payment",
+            action="online_payment.submitted",
+            entity_type="cart",
+            entity_id=str(cart.id),
+            actor_type="user",
+            actor_id="demo_user",
+            source="online_payment_api",
+            request_id=submit_request_id,
+            correlation_id=correlation_id,
+            causation_id=f"http_request:{submit_request_id}",
+            cart_id=cart.id,
+            amount=cart.amount,
+            status="failure",
+            reason=str(exc),
+            before_snapshot={"cart_id": cart.id, "status": str(cart.status)},
+            after_snapshot={"cart_id": cart.id, "status": str(cart.status)},
+            metadata={"step": "submit_failed"},
+        )
+        raise
 
 
 pay_online(["000331714", "000329181"])
