@@ -22,7 +22,7 @@ class ObligationStatus(str, Enum):
 
 class ObligationEventType(str, Enum):
     DEBT_CREATED = "obligation.created"
-    LOCKED = "obligatuon.locked"
+    LOCKED = "obligation.locked"
     PAYMENT_AUTHORISED = "obligation.payment_confirmed"
     PAYMENT_SETTLED = "obligation.payment_settled"
     PAYMENT_REFUNDED = "obligation.payment_refunded"
@@ -50,6 +50,7 @@ class TransactionAllocationType(str, Enum):
 class CartEventType(str, Enum):
     CREATED = "cart.created"
     ITEMS_MODIFIED = "cart.items_modified"
+    PAYMENT_SUBMITTED = "cart.payment_submitted"
     STATUS_TRANSITIONED = "cart.status_transitioned"
     CART_SETTLED = "cart.settled"
     CHECKEDOUT = "cart.checkedout"

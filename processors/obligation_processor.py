@@ -54,19 +54,20 @@ class ObligationProcessor:
 
     @staticmethod
     def _obligation_snapshot(obligation: Obligation) -> dict[str, Any]:
+        print("----------", obligation)
         return {
             "id": obligation.id,
             "owner_id": obligation.owner_id,
             "owner_type": (
-                str(obligation.owner_type)
-                if obligation.owner_type is not None
-                else None
+                obligation.owner_type if obligation.owner_type is not None else None
             ),
             "fee_type": (
                 str(obligation.fee_type) if obligation.fee_type is not None else None
             ),
-            "label": str(obligation.label) if obligation.label is not None else None,
-            "status": str(obligation.status) if obligation.status is not None else None,
+            "label": obligation.label.value if obligation.label is not None else None,
+            "status": (
+                obligation.status.value if obligation.status is not None else None
+            ),
             "amount": obligation.amount,
             "allocated_total": obligation.allocated_total,
             "outstanding_amount": obligation.outstanding_amount,
@@ -115,8 +116,8 @@ class ObligationProcessor:
             transaction_id=transaction_id,
             vendor_event_id=vendor_event_id,
             cart_item_id=cart_item_id,
-            old_status=str(old_status) if old_status is not None else None,
-            new_status=str(new_status) if new_status is not None else None,
+            old_status=old_status.value if old_status is not None else None,
+            new_status=new_status.value if new_status is not None else None,
             amount=amount,
             status=status,
             reason=reason,
@@ -141,8 +142,8 @@ class ObligationProcessor:
                             owner_id=row["owner_id"],
                             owner_type=row["owner_type"],
                             fee_type=row["fee_type"],
-                            label=row["label"],
-                            status=row["status"],
+                            label=ObligationLabel(row["label"]),
+                            status=ObligationStatus(row["status"]),
                             amount=int(row["amount"]),
                             allocated_total=int(row.get("allocated_total", 0)),
                             outstanding_amount=int(row.get("outstanding_amount", 0)),
@@ -173,22 +174,6 @@ class ObligationProcessor:
         )
 
     @staticmethod
-    def authorise(
-        obligations: List[Obligation], transaction: Transaction
-    ) -> List[Obligation]:
-        for obligation in obligations:
-            obligation.status = "authorised"
-        return obligations
-
-    @staticmethod
-    def settle(
-        obligations: List[Obligation], transaction: Transaction
-    ) -> List[Obligation]:
-        for obligation in obligations:
-            obligation.status = "settled"
-        return obligations
-
-    @staticmethod
     def get_from_raw(raw_allocations: List[RawAllocation]) -> List[Obligation]:
         obligations = []
         for raw_allocation in raw_allocations:
@@ -198,7 +183,7 @@ class ObligationProcessor:
                     owner_type=raw_allocation.owner_type,
                     fee_type=raw_allocation.fee_type,
                     name="Generated Obligation",
-                    status="pending",
+                    status=ObligationStatus.OPEN,
                     locked_by=None,
                 )
             )
@@ -432,7 +417,7 @@ class ObligationProcessor:
             after_snapshot=ObligationProcessor._obligation_snapshot(obligation),
             audit_context=audit_context,
             metadata={
-                "event_type": str(ObligationEventType.DEBT_CREATED),
+                "event_type": ObligationEventType.DEBT_CREATED.value,
             },
         )
         return obligation
@@ -516,8 +501,10 @@ class ObligationProcessor:
                 audit_context=audit_context,
                 cart_item_id=cart_item.id,
                 metadata={
-                    "event_type": str(ObligationEventType.LOCKED),
-                    "payment_mode": str(payment_mode),
+                    "event_type": ObligationEventType.LOCKED.value,
+                    "payment_mode": (
+                        payment_mode.value if payment_mode is not None else None
+                    ),
                     "locked_by": lock_by,
                 },
             )
@@ -648,10 +635,10 @@ class ObligationProcessor:
             ),
             cart_item_id=cart_item.id,
             metadata={
-                "event_type": str(obligation_activity_status),
+                "event_type": obligation_activity_status.value,
                 "allocated_delta": allocated_delta,
                 "payment_mode": (
-                    str(vendor_event.payment_mode)
+                    vendor_event.payment_mode.value
                     if vendor_event.payment_mode is not None
                     else None
                 ),
@@ -731,7 +718,7 @@ class ObligationProcessor:
             after_snapshot=ObligationProcessor._obligation_snapshot(obligation),
             audit_context=audit_context,
             metadata={
-                "event_type": str(ObligationEventType.PARTIAL_WAIVE),
+                "event_type": ObligationEventType.PARTIAL_WAIVE.value,
                 "waive_amount": waive_amount,
             },
         )
@@ -795,7 +782,7 @@ class ObligationProcessor:
             after_snapshot=ObligationProcessor._obligation_snapshot(obligation),
             audit_context=audit_context,
             metadata={
-                "event_type": str(ObligationEventType.WAIVED),
+                "event_type": ObligationEventType.WAIVED.value,
                 "waive_amount": waive_amount,
             },
         )
@@ -857,7 +844,7 @@ class ObligationProcessor:
             after_snapshot=ObligationProcessor._obligation_snapshot(obligation),
             audit_context=audit_context,
             metadata={
-                "event_type": str(ObligationEventType.SUPERSEDED),
+                "event_type": ObligationEventType.SUPERSEDED.value,
                 "replacement_amount": new_amount,
             },
         )

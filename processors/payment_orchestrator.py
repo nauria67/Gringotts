@@ -1,6 +1,6 @@
 import time
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 from core.models.models import (
     AddCartItemsRequest,
@@ -122,7 +122,10 @@ class PaymentOrchestrator:
         return resolved_allocations
 
     @staticmethod
-    def process_payment_event(vendor_event: VendorEvent):
+    def process_payment_event(
+        vendor_event: VendorEvent,
+        audit_context: Optional[dict[str, Any]] = None,
+    ) -> list[LedgerAllocationItemInput]:
         cart = vendor_event.cart
         transaction = vendor_event.transaction
 
@@ -152,14 +155,16 @@ class PaymentOrchestrator:
                     status=CartStatus.SYSTEM_CREATED,
                     vendor=VendorName.CHECKALT,
                     payment_mode=vendor_event.payment_mode,
-                )
+                ),
+                audit_context=audit_context,
             )
 
             cart = CartProcessor.add_items_to_cart(
                 AddCartItemsRequest(
                     cart=cart,
                     obligations=obligation_list,
-                )
+                ),
+                audit_context=audit_context,
             )
 
         # Pass 2: ensure every allocation now has a cart_item
@@ -197,19 +202,23 @@ class PaymentOrchestrator:
             cart=cart,
             item_allocations=ledger_allocation_item_inputs,
             record_time=int(time.time() * 1000),
+            audit_context=audit_context,
         )
 
         if vendor_event.event_type == VendorEventType.PAYMENT_SETTLED:
-            CartProcessor.settle_payment(cart)
+            CartProcessor.settle_payment(cart, audit_context=audit_context)
         elif vendor_event.event_type == VendorEventType.PAYMENT_CONFIRMED:
-            CartProcessor.confirm_payment(cart)
+            CartProcessor.confirm_payment(cart, audit_context=audit_context)
         elif vendor_event.event_type == VendorEventType.PAYMENT_REFUNDED:
-            CartProcessor.refund_payment(cart)
+            CartProcessor.refund_payment(cart, audit_context=audit_context)
         elif vendor_event.event_type == VendorEventType.PAYMENT_DISPUTE_FUNDS_WITHDRAWN:
-            CartProcessor.mark_payment_dispute_funds_withdrawn(cart)
+            CartProcessor.mark_payment_dispute_funds_withdrawn(
+                cart, audit_context=audit_context
+            )
         elif vendor_event.event_type == VendorEventType.PAYMENT_DISPUTE_FUNDS_RETURNED:
-            CartProcessor.mark_payment_dispute_funds_returned(cart)
-
+            CartProcessor.mark_payment_dispute_funds_returned(
+                cart, audit_context=audit_context
+            )
         for ledger_item in ledger_items:
             allocations = ledger_item.allocations or []
             for allocation in allocations:
@@ -219,6 +228,7 @@ class PaymentOrchestrator:
                     cart_item=allocation.cart_item,
                     vendor_event=vendor_event,
                     ledger_item=ledger_item,
+                    audit_context=audit_context,
                 )
 
         return ledger_items

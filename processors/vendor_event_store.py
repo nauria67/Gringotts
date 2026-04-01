@@ -14,6 +14,7 @@ from core.models.models import (
     ObligationProcessingResult,
     ObligationStatus,
     PayableIdentifiers,
+    PaymentMode,
     RawAllocation,
     Transaction,
     VendorEvent,
@@ -94,12 +95,22 @@ class VendorEventStore:
             for row in reader:
                 vendor_event = VendorEvent(
                     id=int(row["id"]),
-                    event_type=row["event_type"],
-                    vendor_name=row["vendor_name"],
-                    metadata=row["metadata"],
-                    court_adjustment=row["court_adjustment"],
-                    processing_status=row["processing_status"],
-                    payment_mode=row["payment_mode"],
+                    event_type=VendorEventType(row["event_type"]),
+                    vendor_name=VendorName(row["vendor_name"]),
+                    metadata=json.loads(row["metadata"]) if row["metadata"] else None,
+                    court_adjustment=(
+                        json.loads(row["court_adjustment"])
+                        if row["court_adjustment"]
+                        else None
+                    ),
+                    processing_status=VendorEventProcessingStatus(
+                        row["processing_status"]
+                    ),
+                    payment_mode=(
+                        PaymentMode(row["payment_mode"])
+                        if row["payment_mode"]
+                        else None
+                    ),
                     is_settled=(
                         row["is_settled"] == "TRUE"
                         if row["is_settled"] is not None

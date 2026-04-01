@@ -12,6 +12,19 @@ class VendorEventWorker:
         return f"vendor_event:{event.id}"
 
     @staticmethod
+    def _build_audit_context(
+        event, worker_name: str, request_id: str, correlation_id: str
+    ):
+        return {
+            "actor_type": "system",
+            "actor_id": worker_name,
+            "source": worker_name,
+            "request_id": request_id,
+            "correlation_id": correlation_id,
+            "causation_id": f"worker_batch:{worker_name}",
+        }
+
+    @staticmethod
     def process_pending_vendor_events(
         *,
         event_type: VendorEventType,
@@ -29,30 +42,15 @@ class VendorEventWorker:
         if event_filter_fn:
             vendor_events = [event for event in vendor_events if event_filter_fn(event)]
 
-        AccessLogManager.log_request(
-            channel="worker",
-            request_id=f"worker_batch:{worker_name}",
-            correlation_id=None,
-            actor_type="system",
-            actor_id=worker_name,
-            source=worker_name,
-            method="CONSUME",
-            path_or_operation="fetch_pending_vendor_events",
-            target_type="vendor_event_batch",
-            target_id=None,
-            response_status_code=200,
-            status="success",
-            metadata={
-                "event_type": str(event_type),
-                "processing_status": str(processing_status),
-                "vendor_name": str(vendor_name),
-                "event_count": len(vendor_events),
-            },
-        )
-
         for event in vendor_events:
             correlation_id = VendorEventWorker._build_correlation_id(event)
             request_id = f"worker_event:{event.id}"
+            audit_context = VendorEventWorker._build_audit_context(
+                event=event,
+                worker_name=worker_name,
+                request_id=request_id,
+                correlation_id=correlation_id,
+            )
 
             AuditLogManager.log_event(
                 domain="vendor_event",
@@ -75,21 +73,24 @@ class VendorEventWorker:
                 status="success",
                 before_snapshot={
                     "id": event.id,
-                    "processing_status": str(event.processing_status),
-                    "event_type": str(event.event_type),
-                    "vendor_name": str(event.vendor_name),
+                    "processing_status": event.processing_status.value,
+                    "event_type": event.event_type.value,
+                    "vendor_name": event.vendor_name.value,
                 },
                 after_snapshot={
                     "id": event.id,
-                    "processing_status": str(event.processing_status),
-                    "event_type": str(event.event_type),
-                    "vendor_name": str(event.vendor_name),
+                    "processing_status": event.processing_status.value,
+                    "event_type": event.event_type.value,
+                    "vendor_name": event.vendor_name.value,
                 },
                 metadata={"worker": worker_name},
             )
 
             try:
-                PaymentOrchestrator.process_payment_event(event)
+                PaymentOrchestrator.process_payment_event(
+                    event,
+                    audit_context=audit_context,
+                )
 
                 AccessLogManager.log_request(
                     channel="worker",
@@ -127,8 +128,8 @@ class VendorEventWorker:
                     error_code="VENDOR_EVENT_PROCESSING_FAILED",
                     error_message=str(e),
                     metadata={
-                        "event_type": str(event.event_type),
-                        "vendor_name": str(event.vendor_name),
+                        "event_type": event.event_type.value,
+                        "vendor_name": event.vendor_name.value,
                     },
                 )
 

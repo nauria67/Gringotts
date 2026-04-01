@@ -49,13 +49,13 @@ class Ledger:
         return {
             "id": ledger_item.id,
             "vendor_name": (
-                str(ledger_item.vendor_name)
+                ledger_item.vendor_name.value
                 if ledger_item.vendor_name is not None
                 else None
             ),
             "amount": ledger_item.amount,
-            "stage": str(ledger_item.stage) if ledger_item.stage is not None else None,
-            "type": str(ledger_item.type) if ledger_item.type is not None else None,
+            "stage": ledger_item.stage.value if ledger_item.stage is not None else None,
+            "type": ledger_item.type.value if ledger_item.type is not None else None,
             "label": ledger_item.label,
             "cart_id": ledger_item.cart.id if ledger_item.cart else None,
             "transaction_id": (
@@ -82,8 +82,8 @@ class Ledger:
         *,
         action: str,
         ledger_item: LedgerItem,
-        old_stage: Optional[str],
-        new_stage: Optional[str],
+        old_stage: Optional[LedgerStage],
+        new_stage: Optional[LedgerStage],
         before_snapshot: Optional[dict[str, Any]],
         after_snapshot: Optional[dict[str, Any]],
         audit_context: Optional[dict[str, Any]] = None,
@@ -108,8 +108,8 @@ class Ledger:
                 ledger_item.transaction.id if ledger_item.transaction else None
             ),
             vendor_event_id=vendor_event.id if vendor_event else None,
-            old_status=str(old_stage) if old_stage is not None else None,
-            new_status=str(new_stage) if new_stage is not None else None,
+            old_status=old_stage.value if old_stage is not None else None,
+            new_status=new_stage.value if new_stage is not None else None,
             amount=int(ledger_item.amount) if ledger_item.amount is not None else None,
             status=status,
             reason=reason,
@@ -261,7 +261,11 @@ class Ledger:
                             transaction=TransactionProcessor.get_transaction_by_id(
                                 int(row["transaction_id"])
                             ),
-                            vendor_name=row["vendor_name"],
+                            vendor_name=(
+                                VendorName(row["vendor_name"])
+                                if row["vendor_name"]
+                                else None
+                            ),
                             amount=float(row["amount"]),
                             stage=LedgerStage(row["stage"]),
                             type=TransactionBreakdownType(row["type"]),
@@ -378,8 +382,8 @@ class Ledger:
                     vendor_event=vendor_event,
                     metadata={
                         "breakdown_label": breakdown_item.label,
-                        "breakdown_type": str(breakdown_item.type),
-                        "vendor_event_type": str(vendor_event.event_type),
+                        "breakdown_type": breakdown_item.type.value,
+                        "vendor_event_type": vendor_event.event_type.value,
                     },
                 )
 
@@ -434,8 +438,8 @@ class Ledger:
                 vendor_event=vendor_event,
                 metadata={
                     "breakdown_label": breakdown_item.label,
-                    "breakdown_type": str(breakdown_item.type),
-                    "vendor_event_type": str(vendor_event.event_type),
+                    "breakdown_type": breakdown_item.type.value,
+                    "vendor_event_type": vendor_event.event_type.value,
                     "allocation_count": len(allocations or []),
                 },
             )

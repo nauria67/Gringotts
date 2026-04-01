@@ -181,7 +181,6 @@ class AuditLogManager:
             source=source,
             request_id=request_id,
             correlation_id=correlation_id,
-            causation_id=causation_id,
             cart_id=str(cart_id) if cart_id is not None else None,
             cart_item_id=str(cart_item_id) if cart_item_id is not None else None,
             obligation_id=str(obligation_id) if obligation_id is not None else None,

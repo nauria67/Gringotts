@@ -153,9 +153,9 @@ def pay_online(citation_numbers: List[str]):
             after_snapshot={
                 "cart_id": cart.id,
                 "citation_numbers": [c.citation_number for c in citations],
-                "payment_mode": str(PaymentMode.ONLINE),
-                "vendor": str(VendorName.STRIPE),
-                "status": str(cart.status),
+                "payment_mode": PaymentMode.ONLINE.value,
+                "vendor": VendorName.STRIPE.value,
+                "status": cart.status.value,
             },
             metadata={"step": "checkout_started"},
         )
@@ -276,12 +276,12 @@ def pay_online(citation_numbers: List[str]):
             status="success",
             before_snapshot={
                 "cart_id": cart.id,
-                "status": str(cart.status),
+                "status": cart.status.value,
                 "amount": cart.amount,
             },
             after_snapshot={
                 "cart_id": cart.id,
-                "status": str(cart.status),
+                "status": cart.status.value,
                 "amount": cart.amount,
             },
             metadata={"step": "submit_started"},
@@ -353,8 +353,8 @@ def pay_online(citation_numbers: List[str]):
             amount=cart.amount,
             status="failure",
             reason=str(exc),
-            before_snapshot={"cart_id": cart.id, "status": str(cart.status)},
-            after_snapshot={"cart_id": cart.id, "status": str(cart.status)},
+            before_snapshot={"cart_id": cart.id, "status": cart.status.value},
+            after_snapshot={"cart_id": cart.id, "status": cart.status.value},
             metadata={"step": "submit_failed"},
         )
         raise

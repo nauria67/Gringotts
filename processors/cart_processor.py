@@ -13,6 +13,8 @@ from core.models.models import (
     CartStatus,
     ObligationCreationRequest,
     ObligationOwnerType,
+    PaymentMode,
+    VendorName,
 )
 from processors.log_manager import AuditLogManager
 from processors.obligation_processor import ObligationProcessor
@@ -63,15 +65,17 @@ class CartProcessor:
         return str(value) if value is not None else None
 
     @staticmethod
+    def _enum_value(value):
+        return value.value if value is not None else None
+
+    @staticmethod
     def _cart_snapshot(cart: Cart) -> dict[str, Any]:
         return {
             "id": cart.id,
             "amount": cart.amount,
-            "vendor": str(cart.vendor) if cart.vendor is not None else None,
-            "payment_mode": (
-                str(cart.payment_mode) if cart.payment_mode is not None else None
-            ),
-            "status": str(cart.status) if cart.status is not None else None,
+            "vendor": cart.vendor.value,
+            "payment_mode": cart.payment_mode.value if cart.payment_mode else None,
+            "status": cart.status.value if cart.status else None,
             "cart_items": [
                 {
                     "id": item.id,
@@ -79,7 +83,7 @@ class CartProcessor:
                     "amount": item.amount,
                     "obligation_id": item.obligation.id if item.obligation else None,
                     "obligation_label": (
-                        str(item.obligation.label) if item.obligation else None
+                        item.obligation.label if item.obligation else None
                     ),
                 }
                 for item in (cart.cart_items or [])
@@ -119,8 +123,8 @@ class CartProcessor:
             causation_id=CartProcessor._get_ctx_value(audit_context, "causation_id"),
             cart_id=cart.id,
             vendor_event_id=vendor_event_id,
-            old_status=str(old_status) if old_status is not None else None,
-            new_status=str(new_status) if new_status is not None else None,
+            old_status=CartProcessor._enum_value(old_status),
+            new_status=CartProcessor._enum_value(new_status),
             amount=amount,
             status=status,
             reason=reason,
@@ -237,9 +241,9 @@ class CartProcessor:
                         Cart(
                             id=int(row["id"]),
                             amount=int(row["amount"]),
-                            vendor=row["vendor"],
-                            payment_mode=row["payment_mode"],
-                            status=row["status"],
+                            vendor=VendorName(row["vendor"]),
+                            payment_mode=PaymentMode(row["payment_mode"]),
+                            status=CartStatus(row["status"]),
                         )
                     )
 
@@ -268,9 +272,13 @@ class CartProcessor:
                     Cart(
                         id=int(row["id"]),
                         amount=int(row["amount"]),
-                        vendor=row["vendor"],
-                        payment_mode=row["payment_mode"],
-                        status=row["status"],
+                        vendor=VendorName(row["vendor"]),
+                        payment_mode=(
+                            PaymentMode(row["payment_mode"])
+                            if row["payment_mode"]
+                            else None
+                        ),
+                        status=CartStatus(row["status"]) if row["status"] else None,
                     )
                 )
         return carts
@@ -359,7 +367,7 @@ class CartProcessor:
             after_snapshot=CartProcessor._cart_snapshot(cart),
             audit_context=audit_context,
             vendor_event_id=vendor_event_id,
-            metadata={"event_type": str(CartEventType.CREATED)},
+            metadata={"event_type": CartEventType.CREATED.value},
         )
         return cart
 
@@ -375,14 +383,15 @@ class CartProcessor:
 
         for payable in add_cart_items_request.cart_payables:
             obligation = ObligationProcessor.add_payable(
-                ObligationCreationRequest(
+                request=ObligationCreationRequest(
                     type=payable.type,
                     amount=payable.amount,
                     owner_type=ObligationOwnerType.CART,
                     owner_id=cart.id,
                     status=payable.status,
                     label=payable.label,
-                )
+                ),
+                audit_context=audit_context,
             )
 
             new_cart_items.append(
@@ -434,7 +443,7 @@ class CartProcessor:
             audit_context=audit_context,
             vendor_event_id=vendor_event_id,
             metadata={
-                "event_type": str(CartEventType.ITEMS_MODIFIED),
+                "event_type": CartEventType.ITEMS_MODIFIED.value,
                 "new_cart_item_ids": [item.id for item in new_cart_items],
                 "new_obligation_ids": [
                     item.obligation.id for item in new_cart_items if item.obligation
@@ -473,7 +482,7 @@ class CartProcessor:
             before_snapshot=before_snapshot,
             after_snapshot=CartProcessor._cart_snapshot(cart),
             audit_context=audit_context,
-            metadata={"event_type": str(CartEventType.CHECKEDOUT)},
+            metadata={"event_type": CartEventType.CHECKEDOUT.value},
         )
         return cart
 
@@ -489,7 +498,10 @@ class CartProcessor:
         old_status = cart.status
 
         ObligationProcessor.lock_obligations(
-            cart.cart_items, lock_by=cart.id, payment_mode=cart.payment_mode
+            cart.cart_items,
+            lock_by=cart.id,
+            payment_mode=cart.payment_mode,
+            audit_context=audit_context,
         )
 
         cart.status = CartStatus.PAYMENT_SUBMITTED
@@ -498,7 +510,7 @@ class CartProcessor:
         cart_activity_log = CartActivityLog(
             cart_id=cart.id,
             amount=cart.amount,
-            event_type=CartEventType.STATUS_TRANSITIONED,
+            event_type=CartEventType.PAYMENT_SUBMITTED,
             old_status=old_status,
             new_status=cart.status,
             status_updated=old_status != cart.status,
@@ -515,7 +527,7 @@ class CartProcessor:
             after_snapshot=CartProcessor._cart_snapshot(cart),
             audit_context=audit_context,
             metadata={
-                "event_type": str(CartEventType.STATUS_TRANSITIONED),
+                "event_type": CartEventType.PAYMENT_SUBMITTED.value,
                 "locked_obligation_ids": [o.id for o in obligations],
             },
         )
@@ -554,7 +566,7 @@ class CartProcessor:
             after_snapshot=CartProcessor._cart_snapshot(cart),
             audit_context=audit_context,
             vendor_event_id=vendor_event_id,
-            metadata={"event_type": str(CartEventType.CART_SETTLED)},
+            metadata={"event_type": CartEventType.CART_SETTLED.value},
         )
         return cart
 
@@ -591,7 +603,7 @@ class CartProcessor:
             after_snapshot=CartProcessor._cart_snapshot(cart),
             audit_context=audit_context,
             vendor_event_id=vendor_event_id,
-            metadata={"event_type": str(CartEventType.CART_PAYMENT_CONFIRMED)},
+            metadata={"event_type": CartEventType.CART_PAYMENT_CONFIRMED.value},
         )
         return cart
 
@@ -628,7 +640,7 @@ class CartProcessor:
             after_snapshot=CartProcessor._cart_snapshot(cart),
             audit_context=audit_context,
             vendor_event_id=vendor_event_id,
-            metadata={"event_type": str(CartEventType.DISPUTE_FUNDS_WITHDRAWN)},
+            metadata={"event_type": CartEventType.DISPUTE_FUNDS_WITHDRAWN.value},
         )
         return cart
 
@@ -665,7 +677,7 @@ class CartProcessor:
             after_snapshot=CartProcessor._cart_snapshot(cart),
             audit_context=audit_context,
             vendor_event_id=vendor_event_id,
-            metadata={"event_type": str(CartEventType.DISPUTE_FUNDS_RETURNED)},
+            metadata={"event_type": CartEventType.DISPUTE_FUNDS_RETURNED.value},
         )
         return cart
 
@@ -698,6 +710,6 @@ class CartProcessor:
             after_snapshot=CartProcessor._cart_snapshot(cart),
             audit_context=audit_context,
             vendor_event_id=vendor_event_id,
-            metadata={"event_type": str(CartEventType.CART_PAYMENT_REFUNDED)},
+            metadata={"event_type": CartEventType.CART_PAYMENT_REFUNDED.value},
         )
         return cart
