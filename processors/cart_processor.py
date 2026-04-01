@@ -73,6 +73,7 @@ class CartProcessor:
         return {
             "id": cart.id,
             "amount": cart.amount,
+            "refund_amount": cart.refund_amount,
             "vendor": cart.vendor.value,
             "payment_mode": cart.payment_mode.value if cart.payment_mode else None,
             "status": cart.status.value if cart.status else None,
@@ -195,11 +196,21 @@ class CartProcessor:
         with open(CartProcessor.cart_csv_path, mode="a", newline="") as file:
             writer = csv.writer(file)
             if not file_exists:
-                writer.writerow(["id", "amount", "vendor", "payment_mode", "status"])
+                writer.writerow(
+                    [
+                        "id",
+                        "amount",
+                        "refund_amount",
+                        "vendor",
+                        "payment_mode",
+                        "status",
+                    ]
+                )
             writer.writerow(
                 [
                     cart.id,
                     cart.amount,
+                    cart.refund_amount,
                     cart.vendor,
                     cart.payment_mode,
                     cart.status,
@@ -241,6 +252,7 @@ class CartProcessor:
                         Cart(
                             id=int(row["id"]),
                             amount=int(row["amount"]),
+                            refund_amount=int(row.get("refund_amount") or 0),
                             vendor=VendorName(row["vendor"]),
                             payment_mode=PaymentMode(row["payment_mode"]),
                             status=CartStatus(row["status"]),
@@ -249,13 +261,16 @@ class CartProcessor:
 
         with open(CartProcessor.cart_csv_path, mode="w", newline="") as file:
             writer = csv.writer(file)
-            writer.writerow(["id", "amount", "vendor", "payment_mode", "status"])
+            writer.writerow(
+                ["id", "amount", "refund_amount", "vendor", "payment_mode", "status"]
+            )
 
             for cart in carts:
                 writer.writerow(
                     [
                         cart.id,
                         cart.amount,
+                        cart.refund_amount,
                         cart.vendor,
                         cart.payment_mode,
                         cart.status,
@@ -272,6 +287,7 @@ class CartProcessor:
                     Cart(
                         id=int(row["id"]),
                         amount=int(row["amount"]),
+                        refund_amount=int(row.get("refund_amount") or 0),
                         vendor=VendorName(row["vendor"]),
                         payment_mode=(
                             PaymentMode(row["payment_mode"])
@@ -684,32 +700,46 @@ class CartProcessor:
     @staticmethod
     def refund_payment(
         cart: Cart,
+        refund_amount: int,
         vendor_event_id: Optional[int] = None,
         audit_context: Optional[dict[str, Any]] = None,
     ) -> Cart:
+        old_status = cart.status
         before_snapshot = CartProcessor._cart_snapshot(cart)
+
+        cart.refund_amount = (cart.refund_amount or 0) + refund_amount
+        cart.status = (
+            CartStatus.REFUNDED
+            if cart.refund_amount >= cart.amount
+            else CartStatus.PARTIALLY_REFUNDED
+        )
+        CartProcessor.update_cart(cart)
 
         cart_activity_log = CartActivityLog(
             cart_id=cart.id,
             amount=cart.amount,
             event_type=CartEventType.CART_PAYMENT_REFUNDED,
-            old_status=cart.status,
+            old_status=old_status,
             new_status=cart.status,
             vendor_event_id=vendor_event_id,
-            status_updated=False,
+            status_updated=old_status != cart.status,
         )
         CartProcessor.store_cart_activity_log(cart_activity_log)
 
         CartProcessor._log_cart_audit(
             action="cart.payment_refunded",
             cart=cart,
-            old_status=cart.status,
+            old_status=old_status,
             new_status=cart.status,
             amount=cart.amount,
             before_snapshot=before_snapshot,
             after_snapshot=CartProcessor._cart_snapshot(cart),
             audit_context=audit_context,
             vendor_event_id=vendor_event_id,
-            metadata={"event_type": CartEventType.CART_PAYMENT_REFUNDED.value},
+            metadata={
+                "event_type": CartEventType.CART_PAYMENT_REFUNDED.value,
+                "refund_amount": refund_amount,
+                "total_refund_amount": cart.refund_amount,
+            },
         )
         return cart

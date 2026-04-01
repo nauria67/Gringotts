@@ -63,8 +63,6 @@ class CartEventType(str, Enum):
 class CartStatus(str, Enum):
     DRAFT = "draft"
     DISPUTED = "disputed"
-    REFUNDED = "refunded"
-    PARTIALLY_REFUNDED = "partially_refunded"
     CHECKOUT = "checkout"
     ABANDONED = "abandoned"
     PAYMENT_SUBMITTED = "payment_submitted"
@@ -254,6 +252,7 @@ class Cart(BaseDataClass):
     status: CartStatus
     amount: int
     cart_items: List[CartItem] = field(default_factory=list)
+    refund_amount: int = 0
     id: Optional[int] = None
 
 

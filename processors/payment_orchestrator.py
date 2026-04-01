@@ -210,7 +210,12 @@ class PaymentOrchestrator:
         elif vendor_event.event_type == VendorEventType.PAYMENT_CONFIRMED:
             CartProcessor.confirm_payment(cart, audit_context=audit_context)
         elif vendor_event.event_type == VendorEventType.PAYMENT_REFUNDED:
-            CartProcessor.refund_payment(cart, audit_context=audit_context)
+            CartProcessor.refund_payment(
+                cart,
+                refund_amount=transaction.amount,
+                vendor_event_id=vendor_event.id,
+                audit_context=audit_context,
+            )
         elif vendor_event.event_type == VendorEventType.PAYMENT_DISPUTE_FUNDS_WITHDRAWN:
             CartProcessor.mark_payment_dispute_funds_withdrawn(
                 cart, audit_context=audit_context

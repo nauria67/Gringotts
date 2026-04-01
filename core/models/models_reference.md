@@ -15,43 +15,40 @@
 | `payment_confirmed` | Vendor has confirmed receipt of payment |
 | `payment_settled` | Payment has been fully settled and cleared |
 | `disputed` | Payment is under dispute; funds have been withdrawn by the vendor |
-| `refunded` | A full refund has been processed |
-| `partially_refunded` | A partial refund has been processed |
-| `abandoned` | Cart was abandoned before payment was submitted |
 
 #### Cart Status Transitions
 
 ```
-[new] ──────────────────────────────────────────────────────────── draft
-                                                                      │
-                                                              checkout_cart
-                                                                      │
-                                                                      ▼
-                                                                  checkout
-                                                                      │
-                                                             submit_payment
-                                                           (locks obligations)
-                                                                      │
-                                                                      ▼
-                                                            payment_submitted
-                                                                      │
-                                              ┌───────────────────────┤
-                                    payment_confirmed          (vendor event)
-                                              │
-                                              ▼
-                                      payment_confirmed
-                                              │
-                                     payment_settled
-                                              │
-                                              ▼
-                                       payment_settled ◄──── dispute_funds_returned
-                                                                      ▲
-                                                          dispute_funds_withdrawn
-                                                                      │
-                                                                  disputed
+[new] ──────────────────────────────── draft / system_created
+                                                  │
+                                          checkout_cart
+                                                  │
+                                                  ▼
+                                              checkout
+                                                  │
+                                         submit_payment
+                                       (locks obligations)
+                                                  │
+                                                  ▼
+                                        payment_submitted
+                                                  │
+                              ┌───────────────────┤
+                    payment_confirmed       (vendor event)
+                              │
+                              ▼
+                      payment_confirmed
+                              │
+                     payment_settled
+                              │
+                              ▼
+                       payment_settled ◄──── dispute_funds_returned
+                              │                        ▲
+                    payment_refunded          dispute_funds_withdrawn
+                    (refund_amount += n,               │
+                     status unchanged)             disputed
 ```
 
-> Refunded / partially_refunded are set externally by refund processing logic. `refund_payment` logs the event but does not change cart status directly.
+> Refunds do not change cart status. Each `payment_refunded` vendor event fires a `cart.payment_refunded` activity log entry and increments `cart.refund_amount`. The running total can be compared against `cart.amount` to determine full vs partial refund.
 
 ---
 
@@ -80,6 +77,7 @@
 | status | CartStatus | yes |
 | amount | int | yes |
 | cart_items | List[CartItem] | default `[]` |
+| refund_amount | int | default `0` — cumulative total refunded across all refund events |
 | id | int | optional |
 
 ---
@@ -490,7 +488,7 @@ Result of an attempted payment transaction with a vendor.
 | --- | --- | --- | --- |
 | `payment_confirmed` | `payment_confirmed` | `obligation.payment_confirmed` | `ledger.payment_confirmed` |
 | `payment_settled` | `payment_settled` | `obligation.payment_settled` | `ledger.payment_settled` |
-| `payment_refunded` | _(no change)_ | `obligation.payment_refunded` | `ledger.payment_refunded` |
+| `payment_refunded` | _(no change — `refund_amount` incremented)_ | `obligation.payment_refunded` | `ledger.payment_refunded` |
 | `payment_dispute_funds_withdrawn` | `disputed` | `obligation.payment_dispute_funds_withdrawn` | `ledger.payment_dispute_funds_withdrawn` |
 | `payment_dispute_funds_returned` | `payment_settled` | `obligation.payment_dispute_funds_return` | `ledger.payment_dispute_funds_returned` |
 
