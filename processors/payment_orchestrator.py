@@ -218,11 +218,15 @@ class PaymentOrchestrator:
             )
         elif vendor_event.event_type == VendorEventType.PAYMENT_DISPUTE_FUNDS_WITHDRAWN:
             CartProcessor.mark_payment_dispute_funds_withdrawn(
-                cart, audit_context=audit_context
+                cart, vendor_event_id=vendor_event.id, audit_context=audit_context
             )
         elif vendor_event.event_type == VendorEventType.PAYMENT_DISPUTE_FUNDS_RETURNED:
             CartProcessor.mark_payment_dispute_funds_returned(
-                cart, audit_context=audit_context
+                cart, vendor_event_id=vendor_event.id, audit_context=audit_context
+            )
+        elif vendor_event.event_type == VendorEventType.PAYMENT_DISPUTE_LOST:
+            CartProcessor.mark_dispute_lost(
+                cart, vendor_event_id=vendor_event.id, audit_context=audit_context
             )
         for ledger_item in ledger_items:
             allocations = ledger_item.allocations or []

@@ -2,148 +2,6 @@
 
 ---
 
-## Cart
-
-### CartStatus
-
-| Value | Description |
-| --- | --- |
-| `draft` | Cart created but not yet populated or submitted |
-| `system_created` | Cart auto-created by the system (e.g. for check or court payments) |
-| `checkout` | Cart has been checked out and is ready for payment submission |
-| `payment_submitted` | Payment submitted to the vendor; associated obligations are locked |
-| `payment_confirmed` | Vendor has confirmed receipt of payment |
-| `payment_settled` | Payment has been fully settled and cleared |
-| `disputed` | Payment is under dispute; funds have been withdrawn by the vendor |
-
-#### Cart Status Transitions
-
-```
-[new] ──────────────────────────────── draft / system_created
-                                                  │
-                                          checkout_cart
-                                                  │
-                                                  ▼
-                                              checkout
-                                                  │
-                                         submit_payment
-                                       (locks obligations)
-                                                  │
-                                                  ▼
-                                        payment_submitted
-                                                  │
-                              ┌───────────────────┤
-                    payment_confirmed       (vendor event)
-                              │
-                              ▼
-                      payment_confirmed
-                              │
-                     payment_settled
-                              │
-                              ▼
-                       payment_settled ◄──── dispute_funds_returned
-                              │                        ▲
-                    payment_refunded          dispute_funds_withdrawn
-                    (refund_amount += n,               │
-                     status unchanged)             disputed
-```
-
-> Refunds do not change cart status. Each `payment_refunded` vendor event fires a `cart.payment_refunded` activity log entry and increments `cart.refund_amount`. The running total can be compared against `cart.amount` to determine full vs partial refund.
-
----
-
-### CartEventType
-
-| Value | Description |
-| --- | --- |
-| `cart.created` | Cart was created |
-| `cart.items_modified` | Items were added to or removed from the cart |
-| `cart.status_transitioned` | Cart status changed (e.g. on payment submission) |
-| `cart.checkedout` | Cart was checked out by the user |
-| `cart.settled` | Cart payment was fully settled |
-| `cart.payment_confirmed` | Vendor confirmed the cart payment |
-| `cart.payment_refunded` | Cart payment was refunded |
-| `cart.dispute_funds_withdrawn` | Dispute filed; funds withdrawn from the merchant |
-| `cart.dispute_funds_returned` | Dispute resolved in merchant's favour; funds returned |
-
----
-
-### Cart
-
-| Field | Type | Required |
-| --- | --- | --- |
-| payment_mode | `online` \| `check` \| `court` | yes |
-| vendor | `stripe` \| `checkalt` | yes |
-| status | CartStatus | yes |
-| amount | int | yes |
-| cart_items | List[CartItem] | default `[]` |
-| refund_amount | int | default `0` — cumulative total refunded across all refund events |
-| id | int | optional |
-
----
-
-### CartItem
-
-| Field | Type | Required |
-| --- | --- | --- |
-| cart_id | int | yes |
-| amount | float | yes |
-| obligation | Obligation | optional |
-| id | int | optional |
-
----
-
-### CartActivityLog
-
-| Field | Type | Required |
-| --- | --- | --- |
-| cart_id | int | yes |
-| event_type | CartEventType | yes |
-| old_status | CartStatus | yes |
-| amount | int | yes |
-| status_updated | bool | yes |
-| metadata | Dict | default `{}` |
-| new_status | CartStatus | optional |
-| vendor_reference_id | string | optional |
-| vendor_reference_type | string | optional |
-| vendor_event_id | int | optional |
-
----
-
-### CartCreationRequest
-
-| Field | Type | Required |
-| --- | --- | --- |
-| status | CartStatus | yes |
-| vendor | `stripe` \| `checkalt` | yes |
-| payment_mode | `online` \| `check` \| `court` | yes |
-
----
-
-### AddCartItemsRequest
-
-| Field | Type | Required |
-| --- | --- | --- |
-| cart | Cart | yes |
-| obligations | List[Obligation] | default `[]` |
-| cart_payables | List[CartPayable] | default `[]` |
-| validate | bool | default `false` |
-
----
-
-### CartPayable
-
-A lightweight obligation descriptor used when adding fee-type items (e.g. convenience fees) directly to a cart without a pre-existing obligation.
-
-| Field | Type | Required |
-| --- | --- | --- |
-| type | string | yes |
-| amount | float | yes |
-| status | ObligationStatus | yes |
-| label | ObligationLabel | yes |
-
----
-
 ## Obligation
 
 ### ObligationStatus
@@ -303,6 +161,232 @@ open/locked + partial payment ──► waive_partially_paid_obligation ──�
 
 ---
 
+## Cart
+
+### CartStatus
+
+| Value | Description |
+| --- | --- |
+| `draft` | Cart created but not yet populated or submitted |
+| `system_created` | Cart auto-created by the system (e.g. for check or court payments) |
+| `abandoned` | Cart was abandoned during checkout before payment was submitted |
+| `checkout` | Cart has been checked out and is ready for payment submission |
+| `payment_submitted` | Payment submitted to the vendor; associated obligations are locked |
+| `payment_confirmed` | Vendor has confirmed receipt of payment |
+| `payment_settled` | Payment has been fully settled and cleared |
+| `disputed` | Payment is under dispute; funds have been withdrawn by the vendor |
+| `dispute_lost` | Dispute resolved against the merchant; funds permanently taken |
+
+#### Cart Status Transitions
+
+```
+[new] ──────────────────────────────── draft / system_created
+                                                  │
+                                          checkout_cart
+                                                  │
+                                                  ▼
+                                              checkout
+                                                  │
+                                         submit_payment
+                                       (locks obligations)
+                                                  │
+                                                  ▼
+                                        payment_submitted
+                                                  │
+                              ┌───────────────────┤
+                    payment_confirmed       (vendor event)
+                              │
+                              ▼
+                      payment_confirmed
+                              │
+                     payment_settled
+                              │
+                              ▼
+                       payment_settled ◄──── dispute_funds_returned
+                              │                        ▲
+                    payment_refunded          dispute_funds_withdrawn
+                    (cart.refund_amount            │
+                     incremented,              disputed
+                     status unchanged)             │
+                                           dispute_lost (terminal)
+```
+
+> Refunds do not change cart status. Each `payment_refunded` vendor event increments `cart.refund_amount`. To see which items were refunded, query `RefundItemAllocation` records for the cart.
+>
+> Disputes cover the entire cart. Won → `payment_settled` (funds returned). Lost → `dispute_lost` (terminal, funds permanently taken).
+
+---
+
+### CartEventType
+
+| Value | Description |
+| --- | --- |
+| `cart.created` | Cart was created |
+| `cart.items_modified` | Items were added to or removed from the cart |
+| `cart.status_transitioned` | Cart status changed (e.g. on payment submission) |
+| `cart.checkedout` | Cart was checked out by the user |
+| `cart.settled` | Cart payment was fully settled |
+| `cart.payment_confirmed` | Vendor confirmed the cart payment |
+| `cart.payment_refunded` | Cart payment was refunded; `cart.refund_amount` incremented |
+| `cart.dispute_funds_withdrawn` | Dispute filed; funds withdrawn from the merchant |
+| `cart.dispute_funds_returned` | Dispute resolved in merchant's favour; funds returned |
+| `cart.dispute_lost` | Dispute resolved against the merchant; `dispute_lost` status set |
+
+---
+
+### Cart
+
+| Field | Type | Required |
+| --- | --- | --- |
+| payment_mode | `online` \| `check` \| `court` | yes |
+| vendor | `stripe` \| `checkalt` | yes |
+| status | CartStatus | yes |
+| amount | int | yes |
+| cart_items | List[CartItem] | default `[]` |
+| refund_amount | int | default `0` — cumulative total refunded; compare against `amount` to determine full vs partial refund |
+| id | int | optional |
+
+---
+
+### CartItem
+
+| Field | Type | Required |
+| --- | --- | --- |
+| cart_id | int | yes |
+| amount | float | yes |
+| obligation | Obligation | optional |
+| id | int | optional |
+
+> To determine which items were refunded, query `RefundItemAllocation` records linked to this cart. Cart items can only be refunded in full.
+
+---
+
+### CartActivityLog
+
+| Field | Type | Required |
+| --- | --- | --- |
+| cart_id | int | yes |
+| event_type | CartEventType | yes |
+| old_status | CartStatus | yes |
+| amount | int | yes |
+| status_updated | bool | yes |
+| metadata | Dict | default `{}` |
+| new_status | CartStatus | optional |
+| vendor_reference_id | string | optional |
+| vendor_reference_type | string | optional |
+| vendor_event_id | int | optional |
+
+---
+
+### CartCreationRequest
+
+| Field | Type | Required |
+| --- | --- | --- |
+| status | CartStatus | yes |
+| vendor | `stripe` \| `checkalt` | yes |
+| payment_mode | `online` \| `check` \| `court` | yes |
+
+---
+
+### AddCartItemsRequest
+
+| Field | Type | Required |
+| --- | --- | --- |
+| cart | Cart | yes |
+| obligations | List[Obligation] | default `[]` |
+| cart_payables | List[CartPayable] | default `[]` |
+| validate | bool | default `false` |
+
+---
+
+### CartPayable
+
+A lightweight obligation descriptor used when adding fee-type items (e.g. convenience fees) directly to a cart without a pre-existing obligation.
+
+| Field | Type | Required |
+| --- | --- | --- |
+| type | string | yes |
+| amount | float | yes |
+| status | ObligationStatus | yes |
+| label | ObligationLabel | yes |
+
+---
+
+## Transaction
+
+### TransactionBreakdownType
+
+| Value | Description |
+| --- | --- |
+| `payment` | Represents the principal payment amount |
+| `fee` | Represents a fee charged (e.g. a convenience fee) |
+
+---
+
+### TransactionAllocationType
+
+| Value | Description |
+| --- | --- |
+| `cart_item` | Allocation is tied to a specific cart item by ID |
+| `payable` | Allocation is resolved by matching obligation owner/label identifiers |
+
+---
+
+### Transaction
+
+Represents a single payment transaction received from a vendor, including how the total amount breaks down and how it is allocated across obligations.
+
+| Field | Type | Required |
+| --- | --- | --- |
+| vendor_name | `stripe` \| `checkalt` | yes |
+| vendor_reference_id | string | yes |
+| vendor_reference_type | string | yes |
+| amount | int | yes |
+| payment_breakdown | List[TransactionBreakdownItem] | yes |
+| item_allocations | List[TransactionItemAllocation] | default `[]` |
+| id | int | optional |
+
+---
+
+### TransactionBreakdownItem
+
+A single line in the payment breakdown (e.g. one entry for the payment amount, one for the fee).
+
+| Field | Type | Required |
+| --- | --- | --- |
+| type | `payment` \| `fee` | yes |
+| amount | float | yes |
+| label | string | optional |
+
+---
+
+### TransactionItemAllocation
+
+Specifies how a portion of a transaction is allocated to a particular obligation or cart item.
+
+| Field | Type | Required |
+| --- | --- | --- |
+| allocation_type | `cart_item` \| `payable` | yes |
+| amount | int | yes |
+| owner_id | string | optional — required when allocation_type is `payable` |
+| owner_type | string | optional — required when allocation_type is `payable` |
+| label | string | optional — required when allocation_type is `payable` |
+| cart_item_id | int | optional — required when allocation_type is `cart_item` |
+
+---
+
+### TransactionAttempt
+
+Result of an attempted payment transaction with a vendor.
+
+| Field | Type | Required |
+| --- | --- | --- |
+| transaction_result | bool | yes |
+| failure_reason | string | optional |
+| transaction | Transaction | optional |
+
+---
+
 ## Ledger
 
 ### LedgerStage
@@ -384,81 +468,6 @@ Flattened view of a ledger entry used for reporting.
 
 ---
 
-## Transaction
-
-### TransactionBreakdownType
-
-| Value | Description |
-| --- | --- |
-| `payment` | Represents the principal payment amount |
-| `fee` | Represents a fee charged (e.g. a convenience fee) |
-
----
-
-### TransactionAllocationType
-
-| Value | Description |
-| --- | --- |
-| `cart_item` | Allocation is tied to a specific cart item by ID |
-| `payable` | Allocation is resolved by matching obligation owner/label identifiers |
-
----
-
-### Transaction
-
-Represents a single payment transaction received from a vendor, including how the total amount breaks down and how it is allocated across obligations.
-
-| Field | Type | Required |
-| --- | --- | --- |
-| vendor_name | `stripe` \| `checkalt` | yes |
-| vendor_reference_id | string | yes |
-| vendor_reference_type | string | yes |
-| amount | int | yes |
-| payment_breakdown | List[TransactionBreakdownItem] | yes |
-| item_allocations | List[TransactionItemAllocation] | default `[]` |
-| id | int | optional |
-
----
-
-### TransactionBreakdownItem
-
-A single line in the payment breakdown (e.g. one entry for the payment amount, one for the fee).
-
-| Field | Type | Required |
-| --- | --- | --- |
-| type | `payment` \| `fee` | yes |
-| amount | float | yes |
-| label | string | optional |
-
----
-
-### TransactionItemAllocation
-
-Specifies how a portion of a transaction is allocated to a particular obligation or cart item.
-
-| Field | Type | Required |
-| --- | --- | --- |
-| allocation_type | `cart_item` \| `payable` | yes |
-| amount | int | yes |
-| owner_id | string | optional — required when allocation_type is `payable` |
-| owner_type | string | optional — required when allocation_type is `payable` |
-| label | string | optional — required when allocation_type is `payable` |
-| cart_item_id | int | optional — required when allocation_type is `cart_item` |
-
----
-
-### TransactionAttempt
-
-Result of an attempted payment transaction with a vendor.
-
-| Field | Type | Required |
-| --- | --- | --- |
-| transaction_result | bool | yes |
-| failure_reason | string | optional |
-| transaction | Transaction | optional |
-
----
-
 ## Vendor Events
 
 ### VendorName
@@ -491,6 +500,7 @@ Result of an attempted payment transaction with a vendor.
 | `payment_refunded` | _(no change — `refund_amount` incremented)_ | `obligation.payment_refunded` | `ledger.payment_refunded` |
 | `payment_dispute_funds_withdrawn` | `disputed` | `obligation.payment_dispute_funds_withdrawn` | `ledger.payment_dispute_funds_withdrawn` |
 | `payment_dispute_funds_returned` | `payment_settled` | `obligation.payment_dispute_funds_return` | `ledger.payment_dispute_funds_returned` |
+| `payment_dispute_lost` | `dispute_lost` | _(no obligation event)_ | _(no ledger entry)_ |
 
 ---
 
@@ -575,7 +585,7 @@ Represents a physical check received as payment.
 
 ### RefundItemAllocation
 
-Specifies how a refund amount is allocated back to each cart item.
+Records which cart item was refunded and the amount. Cart items can only be refunded in full — this is the source of truth for item-level refund status.
 
 | Field | Type | Required |
 | --- | --- | --- |

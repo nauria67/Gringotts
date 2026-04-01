@@ -704,34 +704,28 @@ class CartProcessor:
         vendor_event_id: Optional[int] = None,
         audit_context: Optional[dict[str, Any]] = None,
     ) -> Cart:
-        old_status = cart.status
         before_snapshot = CartProcessor._cart_snapshot(cart)
 
         cart.refund_amount = (cart.refund_amount or 0) + refund_amount
-        cart.status = (
-            CartStatus.REFUNDED
-            if cart.refund_amount >= cart.amount
-            else CartStatus.PARTIALLY_REFUNDED
-        )
         CartProcessor.update_cart(cart)
 
         cart_activity_log = CartActivityLog(
             cart_id=cart.id,
             amount=cart.amount,
             event_type=CartEventType.CART_PAYMENT_REFUNDED,
-            old_status=old_status,
+            old_status=cart.status,
             new_status=cart.status,
             vendor_event_id=vendor_event_id,
-            status_updated=old_status != cart.status,
+            status_updated=False,
         )
         CartProcessor.store_cart_activity_log(cart_activity_log)
 
         CartProcessor._log_cart_audit(
             action="cart.payment_refunded",
             cart=cart,
-            old_status=old_status,
+            old_status=cart.status,
             new_status=cart.status,
-            amount=cart.amount,
+            amount=refund_amount,
             before_snapshot=before_snapshot,
             after_snapshot=CartProcessor._cart_snapshot(cart),
             audit_context=audit_context,
@@ -741,5 +735,42 @@ class CartProcessor:
                 "refund_amount": refund_amount,
                 "total_refund_amount": cart.refund_amount,
             },
+        )
+        return cart
+
+    @staticmethod
+    def mark_dispute_lost(
+        cart: Cart,
+        vendor_event_id: Optional[int] = None,
+        audit_context: Optional[dict[str, Any]] = None,
+    ) -> Cart:
+        old_status = cart.status
+        before_snapshot = CartProcessor._cart_snapshot(cart)
+
+        cart.status = CartStatus.DISPUTE_LOST
+        CartProcessor.update_cart(cart)
+
+        cart_activity_log = CartActivityLog(
+            cart_id=cart.id,
+            amount=cart.amount,
+            event_type=CartEventType.DISPUTE_LOST,
+            old_status=old_status,
+            new_status=cart.status,
+            vendor_event_id=vendor_event_id,
+            status_updated=True,
+        )
+        CartProcessor.store_cart_activity_log(cart_activity_log)
+
+        CartProcessor._log_cart_audit(
+            action="cart.dispute_lost",
+            cart=cart,
+            old_status=old_status,
+            new_status=cart.status,
+            amount=cart.amount,
+            before_snapshot=before_snapshot,
+            after_snapshot=CartProcessor._cart_snapshot(cart),
+            audit_context=audit_context,
+            vendor_event_id=vendor_event_id,
+            metadata={"event_type": CartEventType.DISPUTE_LOST.value},
         )
         return cart

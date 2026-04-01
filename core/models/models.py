@@ -58,11 +58,13 @@ class CartEventType(str, Enum):
     CART_PAYMENT_CONFIRMED = "cart.payment_confirmed"
     DISPUTE_FUNDS_WITHDRAWN = "cart.dispute_funds_withdrawn"
     DISPUTE_FUNDS_RETURNED = "cart.dispute_funds_returned"
+    DISPUTE_LOST = "cart.dispute_lost"
 
 
 class CartStatus(str, Enum):
     DRAFT = "draft"
     DISPUTED = "disputed"
+    DISPUTE_LOST = "dispute_lost"
     CHECKOUT = "checkout"
     ABANDONED = "abandoned"
     PAYMENT_SUBMITTED = "payment_submitted"
