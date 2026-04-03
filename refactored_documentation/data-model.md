@@ -13,34 +13,29 @@
 | `closed` | Obligation is fully resolved — either fully paid or the remainder was waived |
 | `waived` | Obligation was waived in full; no payment was made |
 | `superseded` | Obligation has been replaced by a new obligation with an adjusted amount |
-| `voided` | Obligation was cancelled entirely |
+| `voided` | Obligation was cancelled entirely in case of clerical error |
 | `disputed` | Obligation is under active dispute |
 
-#### Obligation Status Transitions
+### Obligation Status Transitions
+
+```mermaid
+flowchart TD
+    NEW([new]) --> OPEN[open]
+
+    OPEN -->|lock_obligations| LOCKED[locked]
+    OPEN -->|waive_obligation | WAIVED([waived])
+    OPEN -->|supersede_obligation| SUPERSEDED([superseded])
+    SUPERSEDED -.->|new obligation created with adjusted amount| OPEN
+
+    LOCKED -->|payment event: outstanding = 0| CLOSED([closed])
+    OPEN   -->|payment event: noutstanding = 0| CLOSED
+
+    OPEN   -->|waive_partially_paid_obligation| CLOSED
 
 ```
-[new] ──────────────────────────── open
-         │                           │                           │
-    lock_obligations          waive_obligation           supersede_obligation
-    (cart checkout)           (no payments made)         (no payments made)
-         │                           │                           │
-         ▼                           ▼                           ▼
-       locked                     waived                    superseded
-         │                                             (new obligation created
-         │                                              with adjusted amount)
-   payment event
-   (confirmed/settled/
-    refunded/dispute)
-         │
-         ├─── outstanding > 0 ──► open  (unlocked)
-         │
-         └─── outstanding = 0 ──► closed
 
-open/locked + partial payment ──► waive_partially_paid_obligation ──► closed
-                                   (waives remaining balance)
-```
-
-> `superseded`, `voided`, and `waived` are terminal statuses — obligations in these states are excluded from payment eligibility checks.
+> `superseded`, `voided`, and `waived` are terminal statuses
+> 
 
 ---
 
@@ -88,8 +83,7 @@ open/locked + partial payment ──► waive_partially_paid_obligation ──�
 | Field | Type | Required |
 | --- | --- | --- |
 | owner_id | string | yes |
-| owner_type | `citation` \| `cart` \| `flag` | yes |
-| fee_type | string | yes |
+| owner_type | `citation` | `cart` | `flag` | yes |
 | label | ObligationLabel | yes |
 | status | ObligationStatus | yes |
 | amount | int | yes |
@@ -98,9 +92,10 @@ open/locked + partial payment ──► waive_partially_paid_obligation ──�
 | overpaid_amount | int | yes |
 | waived_amount | int | default `0` |
 | locked_by | int | optional — cart ID that holds the lock |
-| id | int | optional |
+| id | int | yes |
 
 > `outstanding_amount = amount − allocated_total`. When `outstanding_amount` reaches `0`, the obligation moves to `closed`. When `allocated_total > amount`, the excess is captured in `overpaid_amount`.
+> 
 
 ---
 
@@ -123,41 +118,7 @@ open/locked + partial payment ──► waive_partially_paid_obligation ──�
 | vendor_event_id | int | optional |
 | transaction_id | int | optional |
 | cart_item_id | int | optional |
-| payment_mode | `online` \| `check` \| `court` | optional |
-
----
-
-### ObligationProcessingResult
-
-| Field | Type | Required |
-| --- | --- | --- |
-| obligation | Obligation | yes |
-| obligation_activity_log | ObligationActivityLog | yes |
-| citation | Citation | optional |
-
----
-
-### ObligationCreationRequest
-
-| Field | Type | Required |
-| --- | --- | --- |
-| type | string | yes |
-| amount | float | yes |
-| owner_type | `citation` \| `cart` \| `flag` | yes |
-| owner_id | string | yes |
-| status | ObligationStatus | yes |
-| label | ObligationLabel | yes |
-
----
-
-### ObligationFilterRequest
-
-| Field | Type | Required |
-| --- | --- | --- |
-| owner_id | string | optional |
-| owner_type | string | optional |
-| fee_type | string | optional |
-| status | ObligationStatus | optional |
+| payment_mode | `online` | `check` | `court` | optional |
 
 ---
 
@@ -177,43 +138,29 @@ open/locked + partial payment ──► waive_partially_paid_obligation ──�
 | `disputed` | Payment is under dispute; funds have been withdrawn by the vendor |
 | `dispute_lost` | Dispute resolved against the merchant; funds permanently taken |
 
-#### Cart Status Transitions
+### Cart Status Transitions
 
-```
-[new] ──────────────────────────────── draft / system_created
-                                                  │
-                                          checkout_cart
-                                                  │
-                                                  ▼
-                                              checkout
-                                                  │
-                                         submit_payment
-                                       (locks obligations)
-                                                  │
-                                                  ▼
-                                        payment_submitted
-                                                  │
-                              ┌───────────────────┤
-                    payment_confirmed       (vendor event)
-                              │
-                              ▼
-                      payment_confirmed
-                              │
-                     payment_settled
-                              │
-                              ▼
-                       payment_settled ◄──── dispute_funds_returned
-                              │                        ▲
-                    payment_refunded          dispute_funds_withdrawn
-                    (cart.refund_amount            │
-                     incremented,              disputed
-                     status unchanged)             │
-                                           dispute_lost (terminal)
+```mermaid
+flowchart TD
+    NEW([new]) --> DRAFT
+
+    DRAFT     -->|checkout_cart| CHECKOUT[checkout]
+    CHECKOUT  -->|submit_payment\\nlocks obligations| SUBMITTED[payment_submitted]
+    SUBMITTED -->|payment_confirmed event| CONFIRMED[payment_confirmed]
+    CONFIRMED -->|payment_settled event| SETTLED[payment_settled]
+
+    SETTLED -->|payment_refunded event / refund_amount incremented / status unchanged| SETTLED
+
+    SETTLED  -->|dispute_funds_withdrawn event| DISPUTED[disputed]
+    DISPUTED -->|dispute_funds_returned event| SETTLED
+    DISPUTED -->|payment_dispute_lost event| LOST([dispute_lost])
 ```
 
 > Refunds do not change cart status. Each `payment_refunded` vendor event increments `cart.refund_amount`. To see which items were refunded, query `RefundItemAllocation` records for the cart.
->
+> 
+> 
 > Disputes cover the entire cart. Won → `payment_settled` (funds returned). Lost → `dispute_lost` (terminal, funds permanently taken).
+> 
 
 ---
 
@@ -238,8 +185,8 @@ open/locked + partial payment ──► waive_partially_paid_obligation ──�
 
 | Field | Type | Required |
 | --- | --- | --- |
-| payment_mode | `online` \| `check` \| `court` | yes |
-| vendor | `stripe` \| `checkalt` | yes |
+| payment_mode | `online` | `check` | `court` | yes |
+| vendor | `stripe` | `checkalt` | yes |
 | status | CartStatus | yes |
 | amount | int | yes |
 | cart_items | List[CartItem] | default `[]` |
@@ -254,10 +201,11 @@ open/locked + partial payment ──► waive_partially_paid_obligation ──�
 | --- | --- | --- |
 | cart_id | int | yes |
 | amount | float | yes |
-| obligation | Obligation | optional |
+| obligation | Obligation | yes |
 | id | int | optional |
 
 > To determine which items were refunded, query `RefundItemAllocation` records linked to this cart. Cart items can only be refunded in full.
+> 
 
 ---
 
@@ -275,27 +223,6 @@ open/locked + partial payment ──► waive_partially_paid_obligation ──�
 | vendor_reference_id | string | optional |
 | vendor_reference_type | string | optional |
 | vendor_event_id | int | optional |
-
----
-
-### CartCreationRequest
-
-| Field | Type | Required |
-| --- | --- | --- |
-| status | CartStatus | yes |
-| vendor | `stripe` \| `checkalt` | yes |
-| payment_mode | `online` \| `check` \| `court` | yes |
-
----
-
-### AddCartItemsRequest
-
-| Field | Type | Required |
-| --- | --- | --- |
-| cart | Cart | yes |
-| obligations | List[Obligation] | default `[]` |
-| cart_payables | List[CartPayable] | default `[]` |
-| validate | bool | default `false` |
 
 ---
 
@@ -319,16 +246,7 @@ A lightweight obligation descriptor used when adding fee-type items (e.g. conven
 | Value | Description |
 | --- | --- |
 | `payment` | Represents the principal payment amount |
-| `fee` | Represents a fee charged (e.g. a convenience fee) |
-
----
-
-### TransactionAllocationType
-
-| Value | Description |
-| --- | --- |
-| `cart_item` | Allocation is tied to a specific cart item by ID |
-| `payable` | Allocation is resolved by matching obligation owner/label identifiers |
+| `fee` | Represents a fee charged (e.g. a stripe fee) |
 
 ---
 
@@ -338,7 +256,7 @@ Represents a single payment transaction received from a vendor, including how th
 
 | Field | Type | Required |
 | --- | --- | --- |
-| vendor_name | `stripe` \| `checkalt` | yes |
+| vendor_name | `stripe` | `checkalt` | yes |
 | vendor_reference_id | string | yes |
 | vendor_reference_type | string | yes |
 | amount | int | yes |
@@ -354,11 +272,18 @@ A single line in the payment breakdown (e.g. one entry for the payment amount, o
 
 | Field | Type | Required |
 | --- | --- | --- |
-| type | `payment` \| `fee` | yes |
+| type | `TransactionBreakdownType`  | yes |
 | amount | float | yes |
 | label | string | optional |
 
 ---
+
+### TransactionBreakdownType
+
+| Value | Description |
+| --- | --- |
+| `payment` | Represents the principal payment amount |
+| `fee` | Represents a fee charged (e.g. a stripe fee) |
 
 ### TransactionItemAllocation
 
@@ -366,14 +291,19 @@ Specifies how a portion of a transaction is allocated to a particular obligation
 
 | Field | Type | Required |
 | --- | --- | --- |
-| allocation_type | `cart_item` \| `payable` | yes |
+| allocation_type | `TransactionAllocationType`  | yes |
 | amount | int | yes |
 | owner_id | string | optional — required when allocation_type is `payable` |
 | owner_type | string | optional — required when allocation_type is `payable` |
 | label | string | optional — required when allocation_type is `payable` |
-| cart_item_id | int | optional — required when allocation_type is `cart_item` |
+| cart_item_id | int | optional — required when allocation_type is `cart_item`  |
 
----
+### TransactionAllocationType
+
+| Value | Description |
+| --- | --- |
+| `cart_item` | Allocation is tied to a specific cart item by ID |
+| `payable` | Allocation is resolved by matching obligation owner/label identifiers |
 
 ### TransactionAttempt
 
@@ -407,10 +337,10 @@ A single line item in the financial ledger, tied to a specific cart and stage of
 
 | Field | Type | Required |
 | --- | --- | --- |
-| vendor_name | `stripe` \| `checkalt` | yes |
+| vendor_name | `stripe` | `checkalt` | yes |
 | amount | float | yes |
-| stage | LedgerStage | yes |
-| type | `payment` \| `fee` | yes |
+| stage | `LedgerStage` | yes |
+| type | `payment` | `fee` | yes |
 | label | string | yes |
 | cart | Cart | yes |
 | confirmed_at | int (timestamp) | optional |
@@ -428,17 +358,6 @@ Maps a ledger item to a specific cart item, recording how much of the ledger amo
 | Field | Type | Required |
 | --- | --- | --- |
 | ledger_id | int | yes |
-| cart_item | CartItem | yes |
-| amount | float | yes |
-
----
-
-### LedgerAllocationItemInput
-
-Input structure used when recording a new ledger event.
-
-| Field | Type | Required |
-| --- | --- | --- |
 | cart_item | CartItem | yes |
 | amount | float | yes |
 
@@ -491,16 +410,16 @@ Flattened view of a ledger entry used for reporting.
 | `payment_dispute_funds_returned` | Dispute resolved in merchant's favour; funds returned |
 | `payment_dispute_lost` | Dispute resolved against the merchant; funds not returned |
 
-#### Vendor Event → System Actions
+### Vendor Event → System Actions
 
 | Vendor Event | Cart Status | Obligation Event | Ledger Stage |
 | --- | --- | --- | --- |
 | `payment_confirmed` | `payment_confirmed` | `obligation.payment_confirmed` | `ledger.payment_confirmed` |
 | `payment_settled` | `payment_settled` | `obligation.payment_settled` | `ledger.payment_settled` |
-| `payment_refunded` | _(no change — `refund_amount` incremented)_ | `obligation.payment_refunded` | `ledger.payment_refunded` |
+| `payment_refunded` | *(no change — `refund_amount` incremented)* | `obligation.payment_refunded` | `ledger.payment_refunded` |
 | `payment_dispute_funds_withdrawn` | `disputed` | `obligation.payment_dispute_funds_withdrawn` | `ledger.payment_dispute_funds_withdrawn` |
 | `payment_dispute_funds_returned` | `payment_settled` | `obligation.payment_dispute_funds_return` | `ledger.payment_dispute_funds_returned` |
-| `payment_dispute_lost` | `dispute_lost` | _(no obligation event)_ | _(no ledger entry)_ |
+| `payment_dispute_lost` | `dispute_lost` | *(no obligation event)* | *(no ledger entry)* |
 
 ---
 
@@ -522,14 +441,14 @@ Inbound event from a payment vendor, driving downstream updates to carts, obliga
 | --- | --- | --- |
 | processing_status | VendorEventProcessingStatus | yes |
 | event_type | VendorEventType | yes |
-| vendor_name | `stripe` \| `checkalt` | yes |
+| vendor_name | `stripe` | `checkalt` | yes |
 | metadata | Dict[string, string] | yes |
 | transaction | Transaction | optional |
 | court_adjustment | CourtAdjustment | optional |
 | cart | Cart | optional |
-| payment_mode | `online` \| `check` \| `court` | optional |
+| payment_mode | `online` | `check` | `court` | optional |
 | is_settled | bool | optional |
-| id | int | optional |
+| id | int | required |
 
 ---
 
@@ -542,18 +461,6 @@ Inbound event from a payment vendor, driving downstream updates to carts, obliga
 | `online` | Online card payment (processed via Stripe) |
 | `check` | Payment by check (processed via CheckAlt) |
 | `court` | Court-issued payment or adjustment |
-
----
-
-### Cheque
-
-Represents a physical check received as payment.
-
-| Field | Type | Required |
-| --- | --- | --- |
-| amount | float | yes |
-| ids | Dict[string, string] | yes |
-| metadata | Dict[string, string] | yes |
 
 ---
 
@@ -577,7 +484,7 @@ Represents a physical check received as payment.
 | refund_amount | int | yes |
 | transaction | Transaction | yes |
 | refund_item_allocations | List[RefundItemAllocation] | yes |
-| vendor_name | `stripe` \| `checkalt` | yes |
+| vendor_name | `stripe` | `checkalt` | yes |
 | processing_status | RefundProcessingStatus | yes |
 | metadata | Dict | default `{}` |
 
@@ -598,22 +505,11 @@ Records which cart item was refunded and the amount. Cart items can only be refu
 
 ### CourtAdjustment
 
-Wraps a court-issued raw allocation, used when a court processes a payment directly against an obligation.
+Wraps a court-issued raw allocation, used when a court revises the fee
 
 | Field | Type | Required |
 | --- | --- | --- |
 | raw_allocation | RawAllocation | yes |
-
----
-
-### CourtPaymentNotification
-
-Notification of a court payment outcome, including the resulting obligation status.
-
-| Field | Type | Required |
-| --- | --- | --- |
-| court_adjustment | CourtAdjustment | yes |
-| status | ObligationStatus | yes |
 
 ---
 
@@ -630,18 +526,6 @@ A low-level allocation input used in court payment flows, identifying an obligat
 
 ---
 
-### PayableIdentifiers
-
-Minimal identifiers for looking up an obligation by its owner and fee label without needing its ID.
-
-| Field | Type | Required |
-| --- | --- | --- |
-| owner_id | string | yes |
-| owner_type | string | yes |
-| label | ObligationLabel | yes |
-
----
-
 ## Citation
 
 | Field | Type | Required |
@@ -653,7 +537,7 @@ Minimal identifiers for looking up an obligation by its owner and fee label with
 | payment_status | string | yes |
 | citation_stage | string | yes |
 | citation_status | string | yes |
-| source | string | yes |
+| payment_source | string | yes |
 | payment_date | string | optional |
 
 ---
@@ -675,7 +559,7 @@ Used to flag and investigate payment anomalies or system errors.
 
 | Field | Type | Required |
 | --- | --- | --- |
-| issue | `invalid_payment` \| `system_error` | yes |
+| issue | `invalid_payment` | `system_error` | yes |
 | allocations | List[LedgerAllocation] | optional |
 | obligations | List[Obligation] | optional |
 | cart | Cart | optional |
@@ -687,58 +571,86 @@ Used to flag and investigate payment anomalies or system errors.
 
 ### AccessLog
 
-Records every inbound API or channel request for observability.
+Records every inbound request across all entry channels. Used for operational observability — latency tracking, error rate monitoring, and request tracing. Every request, regardless of outcome, should produce an access log entry.
 
-| Field | Type | Required |
+| Field | Type | Description |
 | --- | --- | --- |
-| occurred_at | int (timestamp) | yes |
-| channel | string | yes |
-| request_id | string | optional |
-| correlation_id | string | optional |
-| actor_type | string | optional |
-| actor_id | string | optional |
-| source | string | optional |
-| method | string | optional |
-| path_or_operation | string | optional |
-| target_type | string | optional |
-| target_id | string | optional |
-| response_status_code | int | optional |
-| status | string | default `"success"` |
-| duration_ms | int | optional |
-| error_code | string | optional |
-| error_message | string | optional |
-| metadata | JSON string | default `{}` |
+| occurred_at | int (timestamp) | Unix timestamp in milliseconds when the request was received |
+| channel | string | Entry point for the request — e.g. `api`, `worker`, `webhook` |
+| request_id | string | Unique ID for this specific request, used to correlate access and audit logs |
+| correlation_id | string | ID linking all logs produced by a single user-initiated flow (e.g. a checkout session) |
+| actor_type | string | Type of entity that made the request — e.g. `user`, `system`, `admin` |
+| actor_id | string | ID of the actor — e.g. a user ID or worker name |
+| source | string | System or service that originated the request — e.g. `vendor_event_worker`, `api_gateway` |
+| method | string | HTTP method or operation type — e.g. `GET`, `POST`, `CONSUME` |
+| path_or_operation | string | API path or named operation — e.g. `/carts/checkout`, `process_payment_event` |
+| target_type | string | Type of entity being acted on — e.g. `cart`, `vendor_event`, `obligation` |
+| target_id | string | ID of the entity being acted on |
+| response_status_code | int | HTTP status code or equivalent — e.g. `200`, `400`, `500` |
+| status | string | Outcome of the request — `success` or `failure`; default `"success"` |
+| duration_ms | int | Time taken to process the request in milliseconds |
+| error_code | string | Machine-readable error code on failure — e.g. `VENDOR_EVENT_PROCESSING_FAILED` |
+| error_message | string | Human-readable error description on failure |
+| metadata | JSON string | Additional context specific to the request type; default `{}` |
 
 ---
 
 ### AuditLog
 
-Records domain-level state changes for compliance and traceability. Every significant mutation (obligation created, cart settled, payment confirmed, etc.) produces an audit log entry.
+Records every domain-level state change for compliance, traceability, and debugging. Every significant mutation — obligation created, cart checked out, payment confirmed, dispute opened — produces an audit log entry with before/after snapshots.
 
-| Field | Type | Required |
+An audit log entry answers: **who did what, to which entity, when, why, and what changed.**
+
+| Field | Type | Description |
 | --- | --- | --- |
-| occurred_at | int (timestamp) | yes |
-| domain | string | yes — e.g. `obligation`, `cart` |
-| action | string | yes — e.g. `obligation.created`, `cart.payment_confirmed` |
-| entity_type | string | yes |
-| entity_id | string | optional |
-| actor_type | string | optional |
-| actor_id | string | optional |
-| source | string | optional — originating processor, e.g. `obligation_processor` |
-| request_id | string | optional |
-| correlation_id | string | optional |
-| causation_id | string | optional |
-| cart_id | string | optional |
-| cart_item_id | string | optional |
-| obligation_id | string | optional |
-| transaction_id | string | optional |
-| vendor_event_id | string | optional |
-| refund_id | string | optional |
-| old_status | string | optional |
-| new_status | string | optional |
-| amount | int | optional |
-| status | string | default `"success"` |
-| reason | string | optional |
-| before_snapshot | JSON string | default `{}` |
-| after_snapshot | JSON string | default `{}` |
-| metadata | JSON string | default `{}` |
+| occurred_at | int (timestamp) | Unix timestamp in milliseconds when the action occurred |
+| domain | string | Business domain of the action — e.g. `obligation`, `cart`, `vendor_event` |
+| action | string | Specific action taken — e.g. `obligation.created`, `cart.payment_confirmed`, `obligation.locked` |
+| entity_type | string | Type of the primary entity being mutated — e.g. `obligation`, `cart` |
+| entity_id | string | ID of the primary entity being mutated |
+| actor_type | string | Who initiated the action — e.g. `user`, `system`, `admin` |
+| actor_id | string | ID of the actor — e.g. a user ID, or worker name like `vendor_event_consumer` |
+| source | string | Processor or service that wrote the log — e.g. `obligation_processor`, `cart_processor` |
+| request_id | string | Links this audit entry to the corresponding AccessLog entry |
+| correlation_id | string | Links all audit entries produced by a single user-initiated flow |
+| causation_id | string | ID of the event or command that directly caused this action — e.g. `worker_batch:vendor_event_consumer` |
+| cart_id | string | ID of the related cart, if applicable |
+| cart_item_id | string | ID of the related cart item, if applicable |
+| obligation_id | string | ID of the related obligation, if applicable |
+| transaction_id | string | ID of the related transaction, if applicable |
+| vendor_event_id | string | ID of the vendor event that triggered this action, if applicable |
+| refund_id | string | ID of the related refund, if applicable |
+| old_status | string | Status of the entity before this action |
+| new_status | string | Status of the entity after this action |
+| amount | int | Monetary amount involved in the action, in cents |
+| status | string | Outcome of the action — `success` or `failure`; default `"success"` |
+| reason | string | Human-readable explanation for the action, especially on failure or manual overrides |
+| before_snapshot | JSON string | Full serialised state of the entity before the mutation; default `{}` |
+| after_snapshot | JSON string | Full serialised state of the entity after the mutation; default `{}` |
+| metadata | JSON string | Additional action-specific context — e.g. `event_type`, `payment_mode`, `allocated_delta`; default `{}` |
+
+### Audit Actions Reference
+
+| Domain | Action | Trigger |
+| --- | --- | --- |
+| `obligation` | `obligation.created` | New obligation added via `add_payable` |
+| `obligation` | `obligation.locked` | Obligation locked at cart payment submission |
+| `obligation` | `obligation.payment_confirmed` | `payment_confirmed` vendor event processed |
+| `obligation` | `obligation.payment_settled` | `payment_settled` vendor event processed |
+| `obligation` | `obligation.payment_refunded` | `payment_refunded` vendor event processed |
+| `obligation` | `obligation.waived` | Obligation waived in full (no prior payments) |
+| `obligation` | `obligation.partial_waive_applied` | Remaining balance waived after partial payment |
+| `obligation` | `obligation.superseded` | Obligation replaced with new amount |
+| `obligation` | `obligation.dispute_funds_withdrawn` | Dispute funds withdrawn from merchant |
+| `obligation` | `obligation.dispute_funds_returned` | Dispute resolved in merchant's favour |
+| `cart` | `cart.created` | New cart created |
+| `cart` | `cart.items_added` | Obligations or payables added to cart |
+| `cart` | `cart.checked_out` | Cart checked out |
+| `cart` | `cart.payment_submitted` | Payment submitted; obligations locked |
+| `cart` | `cart.payment_confirmed` | `payment_confirmed` vendor event processed |
+| `cart` | `cart.payment_settled` | `payment_settled` vendor event processed |
+| `cart` | `cart.payment_refunded` | `payment_refunded` vendor event processed |
+| `cart` | `cart.dispute_funds_withdrawn` | Dispute funds withdrawn |
+| `cart` | `cart.dispute_funds_returned` | Dispute resolved in merchant's favour |
+| `cart` | `cart.dispute_lost` | Dispute resolved against merchant |
+| `vendor_event` | `vendor_event.processing_dispatched` | Worker picked up a vendor event for processing |
