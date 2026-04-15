@@ -1,0 +1,74 @@
+Milestone 1: Bulk Online Payment integration
+Outcome: 
+Apis to trigger Online payment for citation & flag payment
+Manually generated Ledger Report for Online Payment
+Citation Update
+Basic UI for Support
+    Financial history for violator
+    Financial history for citation
+    Financial history for customer
+    Financial history for cart / obligation
+
+dashboard for basic payment Stats
+financial history 
+
+Milestone 2: Check Payment integration
+Outcome:
+Ingest vendor events from dummy Mailing App
+Manually generated Ledger Report for Payment system processing checks & online Payment
+UI support
+
+Milestone 3: Triage & Audit Setup
+Outcome:
+All transactions are audited. 
+Triage Requests are generated in case of inconsistancies
+detect cases of duplicate / partial payments. 
+UI support for triage resolution
+
+Milestone 4:In person Payment vendor Integration
+Outcome:
+Apis to mark payment as paid
+Manually generated Ledger Report for Payment system processing checks, online Payment, in person payment
+
+Milestone 5: Refunds & Dispute management
+Outcome:
+Online Payment can be refunded
+In person Payment can be refunded
+Disputes are handled
+Support UI for refunds and Disputes
+Manually generated Ledger Report for Payment System 
+Dashboard visibility on Paid, Pending, Refunded, Disputed citations and carts
+
+Milestone 6:
+Court Payments Vendor Integration
+Outcome:
+Process Court Dockets in staging
+Manually generated Ledger Report for Payment system processing checks & online Payment
+
+Milestone 7: Staging Integration for LDS / Leo Portal
+Outcome:
+All portals are able to get the data necessary to convey the desired information via secure apis
+
+Milestone 8: Rollout to Production
+Apis to support Parallel Payment Systems
+Database schema rollout
+Data Backfilling
+System Integration to support both financial Systems
+Financial report comparison to Ledger Report Comparison
+
+
+
+
+
+Who cares about the financial system? 
+Ali. He cares about auditability, visibility in the system and visibility internally, visibility to customers, any issues that might come, like duplicates payments.
+Jeremy cares about the vendors. If we can easily add vendors, how much time might it take them to add them you.- Easily adding new ways to pay
+- Stats and how many people are using which payment modes to pay
+- Waqar cares about financial statement, the report, what is paid against each citation, how much fee we are paying
+- How does it connect to the vendor system
+- Saqib cares about the citation management, the vendor integrations like check alt and court
+- Everybody cares about the correctness
+- Support cares about immediate visibility of a citation payment, receipts, duplicate payments
+- User create a care about the receipts and how much is pending, what is the payment breakdown
+- Easily able to view carts
+- Easily able to pay
